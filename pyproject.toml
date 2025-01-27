@@ -1,0 +1,37 @@
+[project]
+name = "hmmer-api"
+version = "0.1.0"
+description = "API for the Hmmer Web Service."
+authors = ["Aleksandar Rajkovic <aleksandar@ebi.ac.uk>"]
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "django-ninja>=1.3.0",
+    "django>=5.1.3",
+    "celery>=5.4.0",
+    "dj-database-url>=2.3.0",
+    "django-cache-url>=3.4.5",
+    "redis>=5.2.0",
+    "psycopg2>=2.9.10",
+    "jsonpickle>=4.0.0",
+    "pyhmmer>=0.10.15",
+    "pydantic-settings>=2.6.1",
+    "django-celery-results>=2.5.1",
+    "orjson>=3.10.12",
+    "django-cors-headers>=4.6.0",
+    "django-unfold>=0.43.0",
+    "django-treebeard>=4.7.1",
+]
+
+[dependency-groups]
+dev = [
+    "black>=24.10.0",
+    "flake8-pyproject>=1.2.3",
+    "flake8>=7.1.1",
+]
+
+[tool.flake8]
+max-line-length = 120
+
+[tool.black]
+line-length = 120
