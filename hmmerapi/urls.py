@@ -17,9 +17,17 @@ Including another URLconf
 
 from django.contrib import admin
 from django.urls import path
+from django.conf import settings
+from django.conf.urls.static import static
+
 from .api import api as api_v1
+from download.views import serve
+
 
 urlpatterns = [
     path("admin/", admin.site.urls),
     path("api/v1/", api_v1.urls),
 ]
+
+if settings.DEBUG:
+    urlpatterns += static("/downloads/", view=serve)

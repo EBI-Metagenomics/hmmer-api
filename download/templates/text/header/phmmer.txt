@@ -1,0 +1,4 @@
+{{ algo }} results for job {{ id }}:
+
+Target Num-hits Bias Bit-Score E-value Tax-Id Species Description
+================================================================================================================

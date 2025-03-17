@@ -20,43 +20,43 @@ class Command(BaseCommand):
         taxonomy_file = options["taxonomy_file"]
         range_files = options["range_file"]
 
-        # with open(taxonomy_file, newline="") as csvfile:
-        #     reader = csv.DictReader(csvfile)
-        #     header_set = set(reader.fieldnames)
+        with open(taxonomy_file, newline="") as csvfile:
+            reader = csv.DictReader(csvfile)
+            header_set = set(reader.fieldnames)
 
-        #     if not TAXONOMY_REQUIRED_COLUMNS.issubset(header_set):
-        #         missing = TAXONOMY_REQUIRED_COLUMNS - header_set
-        #         raise CommandError(f"CSV file {taxonomy_file} is missing required columns: {', '.join(missing)}")
+            if not TAXONOMY_REQUIRED_COLUMNS.issubset(header_set):
+                missing = TAXONOMY_REQUIRED_COLUMNS - header_set
+                raise CommandError(f"CSV file {taxonomy_file} is missing required columns: {', '.join(missing)}")
 
-        #     rows = list(reader)
+            rows = list(reader)
 
-        #     self.stdout.write(f"Read {len(rows)} rows from {taxonomy_file}")
-        #     nodes = {}
+            self.stdout.write(f"Read {len(rows)} rows from {taxonomy_file}")
+            nodes = {}
 
-        #     for row in rows:
-        #         taxonomy_id = int(row["taxonomy_id"])
-        #         nodes[taxonomy_id] = {
-        #             "data": {"taxonomy_id": taxonomy_id, "name": row["name"], "rank": row["rank"]},
-        #             "children": [],
-        #         }
+            for row in rows:
+                taxonomy_id = int(row["taxonomy_id"])
+                nodes[taxonomy_id] = {
+                    "data": {"taxonomy_id": taxonomy_id, "name": row["name"], "rank": row["rank"]},
+                    "children": [],
+                }
 
-        #     for row in rows:
-        #         taxonomy_id = int(row["taxonomy_id"])
-        #         parent_id = int(row["parent_id"])
+            for row in rows:
+                taxonomy_id = int(row["taxonomy_id"])
+                parent_id = int(row["parent_id"])
 
-        #         if taxonomy_id != parent_id and parent_id in nodes:
-        #             nodes[parent_id]["children"].append(nodes[taxonomy_id])
+                if taxonomy_id != parent_id and parent_id in nodes:
+                    nodes[parent_id]["children"].append(nodes[taxonomy_id])
 
-        #     root = nodes[1]
+            root = nodes[1]
 
-        #     with transaction.atomic():
-        #         self.stdout.write("Deleting existing taxonomy records...")
-        #         Taxonomy.objects.all().delete()
+            with transaction.atomic():
+                self.stdout.write("Deleting existing taxonomy records...")
+                Taxonomy.objects.all().delete()
 
-        #         self.stdout.write("Loading taxonomy records...")
-        #         Taxonomy.load_bulk([root])
+                self.stdout.write("Loading taxonomy records...")
+                Taxonomy.load_bulk([root])
 
-        #     self.stdout.write(self.style.SUCCESS("Taxonomy records loaded successfully!"))
+            self.stdout.write(self.style.SUCCESS("Taxonomy records loaded successfully!"))
 
         if not range_files:
             self.stdout.write("No range files provided, skipping range records...")

@@ -9,12 +9,6 @@ class MessageSchema(Schema):
     message: str
 
 
-class HmmerJobSchema(ModelSchema):
-    class Meta:
-        model = HmmerJob
-        exclude = ["result_pkl", "result_json", "task"]
-
-
 class HmmerJobCreatedSchema(Schema):
     id: UUID4 = Field(..., description="The id of the job")
     status: str = Field(..., description="The status of the job")

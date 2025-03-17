@@ -1,39 +1,96 @@
-import pickle
+import json
 import logging
-from pyhmmer.plan7 import TopHits
+from django.conf import settings
 from django.core.files.base import ContentFile
+from django.core.files.storage import storages
 from django_celery_results.models import TaskResult
-
+from pydantic import TypeAdapter
 from hmmerapi.celery import app
 from result.models import Result
 from search.models import HmmerJob
-from .models import TaxonomyJob, Taxonomy
+from .models import TaxonomyTree, TaxonomyResult, TaxonomyDistributionGraph
 
 logger = logging.getLogger(__name__)
 
 
 @app.task(bind=True)
-def build_taxonomy_tree(self, hmmer_job_id: str):
-    logger.info(f"Building taxonomy tree for hmmer job {hmmer_job_id}")
-    hmmer_job = HmmerJob.objects.get(id=hmmer_job_id)
+def build_taxonomy_tree(self, job_id: str):
+    logger.debug(f"Making taxonomy tree for job {job_id}")
 
-    if hmmer_job.task.status != "SUCCESS":
-        raise Exception(f"Hmmer job {hmmer_job.task_id} has not finished yet")
-
-    with hmmer_job.result_pkl.open("rb") as f:
-        hits: TopHits = pickle.load(f)
-
-    taxonomy_job = TaxonomyJob.objects.create(hmmer_job=hmmer_job)
+    job = HmmerJob.objects.get(id=job_id)
     task_result = TaskResult.objects.get(task_id=self.request.id)
-    taxonomy_job.task = task_result
-    taxonomy_job.save()
+    job.taxonomy_tree_task = task_result
+    job.save()
 
-    seqdb = hmmer_job.params["seqdb"]
+    try:
+        db_config = settings.HMMER.databases[job.database]
+    except KeyError:
+        raise ValueError(f"Database {job.database} not found in settings")
 
-    result = Result.from_top_hits(hits, {"seqdb": seqdb})
+    result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config)
 
-    taxonomy_ids = set([hit.metadata.taxonomy_id for hit in result.hits])
+    tree = TaxonomyTree.build_tree(result.hits)
 
-    nodes = Taxonomy.objects.filter(taxonomy_id__in=taxonomy_ids)
+    storage = storages["results"]
+    name = storage.save(f"{job.id}/taxonomy_tree.json", ContentFile(""))
 
-    logger.info(nodes)
+    with storage.open(name, mode="wt") as fh:
+        fh.write(tree.model_dump_json())
+
+    return storage.path(name)
+
+
+@app.task(bind=True)
+def build_taxonomy_distribution(self, job_id: str):
+    logger.debug(f"Making taxonomy distribution for job {job_id}")
+
+    job = HmmerJob.objects.get(id=job_id)
+    task_result = TaskResult.objects.get(task_id=self.request.id)
+    job.taxonomy_distribution_task = task_result
+    job.save()
+
+    try:
+        db_config = settings.HMMER.databases[job.database]
+    except KeyError:
+        raise ValueError(f"Database {job.database} not found in settings")
+
+    result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config)
+
+    distribution = TaxonomyResult.from_result(result)
+
+    storage = storages["results"]
+    name = storage.save(f"{job.id}/taxonomy_dist.json", ContentFile(""))
+
+    with storage.open(name, mode="wb") as fh:
+        adapter = TypeAdapter(TaxonomyResult)
+        fh.write(adapter.dump_json(distribution))
+
+    return storage.path(name)
+
+
+@app.task(bind=True)
+def build_taxonomy_distribution_graph(self, job_id: str):
+    logger.debug(f"Making taxonomy distribution graph for job {job_id}")
+
+    job = HmmerJob.objects.get(id=job_id)
+    task_result = TaskResult.objects.get(task_id=self.request.id)
+    job.taxonomy_distribution_graph_task = task_result
+    job.save()
+
+    try:
+        db_config = settings.HMMER.databases[job.database]
+    except KeyError:
+        raise ValueError(f"Database {job.database} not found in settings")
+
+    result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config)
+
+    distribution_graph = TaxonomyDistributionGraph.from_result(result)
+
+    storage = storages["results"]
+    name = storage.save(f"{job.id}/taxonomy_dist_graph.json", ContentFile(""))
+
+    with storage.open(name, mode="wb") as fh:
+        adapter = TypeAdapter(TaxonomyDistributionGraph)
+        fh.write(adapter.dump_json(distribution_graph))
+
+    return storage.path(name)

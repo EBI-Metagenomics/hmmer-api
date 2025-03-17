@@ -1,22 +1,103 @@
-import json
+import io
+import os
 import re
-from functools import cached_property
-from typing import List, Optional, Any, Union, Tuple
-from django.conf import settings
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    model_validator,
-    ValidationInfo,
-    Field,
-    field_validator,
-    AliasPath,
-    computed_field,
-)
-from pyhmmer.plan7 import TopHits
+import math
 import logging
 
-logger = logging.getLogger(__name__)
+from construct import (
+    Float64b,
+    Float32b,
+    Int8ub,
+    Int64ub,
+    Int32ub,
+    Pointer,
+    Struct,
+    Array,
+    Computed,
+    this,
+    FlagsEnum,
+    CString,
+    If,
+    Tell,
+)
+from construct_typed import DataclassMixin, DataclassStruct, csfield, FlagsEnumBase, EnumBase
+from pydantic import BaseModel, Field, model_serializer, AliasPath, field_validator, ValidationInfo, model_validator
+from pydantic.dataclasses import dataclass
+from dataclasses import asdict
+from typing import List, Optional, TypeVar, Type, Any, Dict, Tuple
+
+from hmmerapi.config import DatabaseSettings
+
+
+T = TypeVar("T")
+
+# Constants
+
+
+class HmmpgmdStatus(EnumBase):
+    OK = 0  # no error/success
+    FAIL = 1  # failure
+    EOL = 2  # end-of-line (often normal)
+    EOF = 3  # end-of-file (often normal)
+    EOD = 4  # end-of-data (often normal)
+    EMEM = 5  # malloc or realloc failed
+    ENOTFOUND = 6  # file or key not found
+    EFORMAT = 7  # file format not correct
+    EAMBIGUOUS = 8  # an ambiguity of some sort
+    EDIVZERO = 9  # attempted div by zero
+    EINCOMPAT = 10  # incompatible parameters
+    EINVAL = 11  # invalid argument/parameter
+    ESYS = 12  # generic system call failure
+    ECORRUPT = 13  # unexpected data corruption
+    EINCONCEIVABLE = 14  # "can't happen" error
+    ESYNTAX = 15  # invalid user input syntax
+    ERANGE = 16  # value out of allowed range
+    EDUP = 17  # saw a duplicate of something
+    ENOHALT = 18  # a failure to converge
+    ENORESULT = 19  # no result was obtained
+    ENODATA = 20  # no data provided, file empty
+    ETYPE = 21  # invalid type of argument
+    EOVERWRITE = 22  # attempted to overwrite data
+    ENOSPACE = 23  # ran out of some resource
+    EUNIMPLEMENTED = 24  # feature is unimplemented
+    ENOFORMAT = 25  # couldn't guess file format
+    ENOALPHABET = 26  # couldn't guess seq alphabet
+    EWRITE = 27  # write failed (fprintf, etc)
+    EINACCURATE = 28  # return val may be inaccurate
+    EUNSUPPORTEDISA = 29  # function requires an unsupported
+
+
+# class HmmpgmdResultType(EnumBase):
+#     SEQUENCE = 101
+#     HMM = 102
+
+
+class ZSetByEnum(EnumBase):
+    ZSETBY_NTARGETS = 0
+    ZSETBY_OPTION = 1
+    ZSETBY_FILEINFO = 2
+
+
+class P7HitFlags(FlagsEnumBase):
+    IS_INCLUDED = 1 << 0
+    IS_REPORTED = 1 << 1
+    IS_NEW = 1 << 2
+    IS_DROPPED = 1 << 3
+    IS_DUPLICATE = 1 << 4
+
+
+class P7HitStringPresenceFlags(FlagsEnumBase):
+    ACC_PRESENT = 1 << 0
+    DESC_PRESENT = 1 << 1
+
+
+class P7AliStringPresenceFlags(FlagsEnumBase):
+    RFLINE_PRESENT = 1 << 0
+    MMLINE_PRESENT = 1 << 1
+    CSLINE_PRESENT = 1 << 2
+    PPLINE_PRESENT = 1 << 3
+    ASEQ_PRESENT = 1 << 4
+    NTSEQ_PRESENT = 1 << 5
 
 
 class Structure(BaseModel):
@@ -24,9 +105,37 @@ class Structure(BaseModel):
     external_link: str
 
 
+class PfamMetadata(BaseModel):
+    accession: str = Field(alias="a")
+    identifier: str = Field(alias="i")
+    description: str = Field(alias="d")
+    clan: str = Field(alias="c")
+    type: str = Field(alias="t")
+    seq_ga: float = Field(alias="sg")
+    dom_ga: float = Field(alias="dg")
+    nested: Optional[List[str]] = Field(alias="n")
+    model_length: int = Field(alias="l")
+    color: str = Field(alias="cl")
+    active_sites: Optional[List[Tuple[str, List[str]]]] = Field(alias="as")
+
+    external_link: str = Field(alias="a")
+    clan_link: str = Field(alias="c")
+
+    @field_validator("external_link", mode="before", check_fields=False)
+    @classmethod
+    def set_external_link(cls, data: Any, info: ValidationInfo):
+        return f"https://www.ebi.ac.uk/interpro/entry/pfam/{data}"
+
+    @field_validator("clan_link", mode="before", check_fields=False)
+    @classmethod
+    def set_clan_link(cls, data: Any, info: ValidationInfo):
+        return f"https://www.ebi.ac.uk/interpro/set/pfam/{data}"
+
+
 class Metadata(BaseModel):
     structures: list[Structure] = Field([], alias="s")
-    taxonomy_id: int = Field(alias="t")
+    taxonomy_id: Optional[int] = Field(alias="t")
+    lineage: List[Optional[int]] = Field(alias="l")
     architecture_checksum: int = Field(alias="ai")
     architecture_score: int = Field(alias="as")
     architecture: str = Field(alias="a")
@@ -46,6 +155,11 @@ class Metadata(BaseModel):
     @classmethod
     def set_external_link(cls, data: Any, info: ValidationInfo):
         external_link_template = info.context["db_conf"].external_link_template
+        db_name = info.context["db_conf"].name
+
+        if db_name == "pdb":
+            return external_link_template.format(re.sub(r"_.*$", "", data))
+
         return external_link_template.format(data)
 
     @field_validator("taxonomy_link", mode="before", check_fields=False)
@@ -75,212 +189,697 @@ class Metadata(BaseModel):
     @model_validator(mode="before")
     @classmethod
     def convert_to_dict(cls, data: Any, info: ValidationInfo):
-        db_id = info.context["db_conf"].db
-        entries = filter(lambda x: x["d"] == db_id, data["d"])
+        db_index = info.context["db_conf"].db
+        entries = filter(lambda x: x["d"] == db_index, data["d"])
         data["m"] = next(entries)["m"]
         return data
 
 
-class Alignment(BaseModel):
-    hmm_accession: str
-    hmm_from: int
-    hmm_length: int
-    hmm_name: str
-    hmm_sequence: str
-    hmm_to: int
-    identity_sequence: str
-    target_from: int
-    target_length: int
-    target_name: str
-    target_sequence: str
-    target_to: int
+class HmmpgmdModel(DataclassMixin):
+    @classmethod
+    def from_bytes(cls: Type[T], data: bytes, **kwargs) -> T:
+        format = DataclassStruct(cls)
 
-    @cached_property
-    def identity(self) -> Tuple[float, int]:
-        return self._pair_identity(self.hmm_sequence, self.identity_sequence, self.target_sequence)
+        return format.parse(data, **kwargs)
 
-    @cached_property
-    def similarity(self) -> Tuple[float, int]:
-        return self._pair_similarity(self.hmm_sequence, self.identity_sequence, self.target_sequence)
+    @classmethod
+    def from_binary(cls: Type[T], stream: io.IOBase, offset=0, **kwargs) -> T:
+        if offset > 0 and stream.seekable():
+            stream.seek(offset)
 
-    @computed_field
-    @property
-    def identity_score(self) -> float:
-        return self.identity[0]
+        format = DataclassStruct(cls)
 
-    @computed_field
-    @property
-    def similarity_score(self) -> float:
-        return self.similarity[0]
+        return format.parse_stream(stream, **kwargs)
 
-    @computed_field
-    @property
-    def identity_count(self) -> int:
-        return self.identity[1]
+    @classmethod
+    def from_file(cls: Type[T], file: os.PathLike, offset=0, **kwargs) -> T:
+        format = DataclassStruct(cls)
 
-    @computed_field
-    @property
-    def similarity_count(self) -> int:
-        return self.similarity[1]
+        with open(file, mode="rb") as fh:
+            if offset > 0 and fh.seekable():
+                fh.seek(offset)
 
-    def _pair_identity(self, seq1, match, seq2):
-        if len(seq1) != len(seq2):
-            print("Unaligned sequences")
-            return None, None
+            return format.parse_stream(fh, **kwargs)
 
-        match = "".join(filter(str.isalpha, match))
-        seq1 = "".join(filter(str.isalpha, seq1))
-        seq2 = "".join(filter(str.isalpha, seq2))
+    @classmethod
+    def size(cls: Type[T]):
+        return DataclassStruct(cls).sizeof()
 
-        pairScore, count = self._pair(seq1, match, seq2)
-        return pairScore, count
 
-    def _pair(self, seq1, match, seq2):
-        x = len(seq1)
-        y = len(seq2)
-        noId = len(match)
-        min_len = min(x, y)
+@dataclass
+class HmmdSearchStatus(HmmpgmdModel):
+    status: HmmpgmdStatus = csfield(Int32ub)
+    """Contains an Easel result code"""
+    # type: HmmpgmdResultType = csfield(Enum(Int32ub, HmmpgmdResultType))
+    # """SEQUENCE or HMM"""
+    message_size: int = csfield(Int64ub)
+    """Length (in bytes) of the remaining data that will be sent to the client"""
 
-        if min_len and noId:
-            return noId / min_len, noId
+
+@dataclass
+class HmmdSearchStats(HmmpgmdModel):
+    id: str = csfield(Computed(lambda ctx: ctx._params.get("id", "")))
+    """UUID of the search/scan job"""
+    algo: str = csfield(Computed(lambda ctx: ctx._params.get("algo", "unknown")))
+    """Algorith by which the search was performed"""
+    elapsed: float = csfield(Float64b)
+    """Elapsed time, seconds"""
+    user: float = csfield(Float64b)
+    """CPU time, seconds"""
+    sys: float = csfield(Float64b)
+    """System time, seconds"""
+    Z: float = csfield(Float64b)
+    """Effective number of targs searched (per-target E-val)"""
+    domZ: float = csfield(Float64b)
+    """Effective number of signific targs (per-domain E-val)"""
+    Z_setby: int = csfield(Int8ub)
+    """How Z was set"""
+    domZ_setby: int = csfield(Int8ub)
+    """How domZ was set"""
+    nmodels: int = csfield(Int64ub)
+    """Number of HMMs searched"""
+    # nnodes: int = csfield(Int64ub)
+    # """Number of HMM nodes searched"""
+    nseqs: int = csfield(Int64ub)
+    """Number of sequences searched"""
+    # nres: int = csfield(Int64ub)
+    # """Number of residues searched"""
+    n_past_msv: int = csfield(Int64ub)
+    """Number of comparisons that pass MSVFilter()"""
+    n_past_bias: int = csfield(Int64ub)
+    """Number of comparisons that pass bias filter"""
+    n_past_vit: int = csfield(Int64ub)
+    """Number of comparisons that pass ViterbiFilter()"""
+    n_past_fwd: int = csfield(Int64ub)
+    """Number of comparisons that pass ForwardFilter()"""
+    nhits: int = csfield(Int64ub)
+    """Number of hits in list now"""
+    nreported: int = csfield(Int64ub)
+    """Number of hits that are reportable"""
+    nincluded: int = csfield(Int64ub)
+    """Number of hits that are includable"""
+    hit_offsets: Optional[List[int]] = csfield(Array(this.nhits, Int64ub))
+    """An array of nhits values that define the offsets"""
+    size: int = csfield(Tell)
+    """length (in bytes) of the serialized HmmdSearchStats object"""
+
+    @model_serializer
+    def serialize_model(self) -> Dict[str, Any]:
+        fields_to_exclude = ["size", "hit_offsets"]
+        old_dict = asdict(self)
+
+        return {key: old_dict[key] for key in old_dict if key not in fields_to_exclude}
+
+
+@dataclass
+class P7AlignmentDisplay(HmmpgmdModel):
+    size: int = csfield(Int32ub)
+    """length (in bytes) of the serialized P7_ALIDISPLAY object"""
+    n: int = csfield(Int32ub)
+    """Length of strings"""
+    hmmfrom: int = csfield(Int32ub)
+    """Start position on HMM (1..M, or -1)"""
+    hmmto: int = csfield(Int32ub)
+    """End position on HMM (1..M, or -1)"""
+    m: int = csfield(Int32ub)
+    """Length of model"""
+    sqfrom: int = csfield(Int64ub)
+    """Start position on sequence (1..L)"""
+    sqto: int = csfield(Int64ub)
+    """End position on sequence (1..L)"""
+    l: int = csfield(Int64ub)
+    """Length of sequence"""
+    string_presence_flags: Any = csfield(FlagsEnum(Int8ub, P7AliStringPresenceFlags))
+    """String presence flags"""
+    rfline: Optional[str] = csfield(If(this.string_presence_flags.RFLINE_PRESENT, CString("utf8")))
+    """Reference coord info"""
+    mmline: Optional[str] = csfield(If(this.string_presence_flags.MMLINE_PRESENT, CString("utf8")))
+    """Modelmask coord info"""
+    csline: Optional[str] = csfield(If(this.string_presence_flags.CSLINE_PRESENT, CString("utf8")))
+    """Consensus structure info"""
+    model: str = csfield(CString("utf8"))
+    """Aligned query consensus sequence"""
+    mline: str = csfield(CString("utf8"))
+    """"identities", conservation +'s, etc."""
+    aseq: Optional[str] = csfield(If(this.string_presence_flags.ASEQ_PRESENT, CString("utf8")))
+    """Aligned target sequence"""
+    ntseq: Optional[str] = csfield(If(this.string_presence_flags.NTSEQ_PRESENT, CString("utf8")))
+    """Nucleotide target sequence if nhmmscan"""
+    ppline: Optional[str] = csfield(If(this.string_presence_flags.PPLINE_PRESENT, CString("utf8")))
+    """Posterior prob annotation"""
+    hmmname: str = csfield(CString("utf8"))
+    """Name of HMM"""
+    hmmacc: str = csfield(CString("utf8"))
+    """Accession of HMM"""
+    hmmdesc: str = csfield(CString("utf8"))
+    """Description of HMM"""
+    sqname: str = csfield(CString("utf8"))
+    """Name of target sequence"""
+    sqacc: str = csfield(CString("utf8"))
+    """Accession of target sequence"""
+    sqdesc: str = csfield(CString("utf8"))
+    """Description of target sequence"""
+    identity: Optional[Tuple[float, int]] = csfield(Computed(lambda ctx: P7AlignmentDisplay.calculate_identity(ctx)))
+    """The percentage and count of identical residues between the query and the target."""
+    similarity: Optional[Tuple[float, int]] = csfield(
+        Computed(lambda ctx: P7AlignmentDisplay.calculate_similarity(ctx))
+    )
+    """The percentage and count of identical and similar residues between the query and the target."""
+
+    @model_serializer
+    def serialize_model(self) -> Dict[str, Any]:
+        fields_to_exclude = ["size", "string_presence_flags"]
+        old_dict = asdict(self)
+
+        return {key: old_dict[key] for key in old_dict if key not in fields_to_exclude}
+
+    @classmethod
+    def calculate_identity(cls, ctx):
+        # model mline aseq
+        if len(ctx.mline) != len(ctx.aseq):
+            return None
+
+        match = "".join(filter(str.isalpha, ctx.mline))
+        seq1 = "".join(filter(str.isalpha, ctx.model))
+        seq2 = "".join(filter(str.isalpha, ctx.aseq))
+
+        len1 = len(seq1)
+        len2 = len(seq2)
+        number_of_identical = len(match)
+        min_len = min(len1, len2)
+
+        if min_len and number_of_identical:
+            return number_of_identical / min_len, number_of_identical
         else:
             return 0, 0
 
-    def _pair_similarity(self, seq1, match, seq2):
-        if len(seq1) != len(seq2):
-            print("Unaligned sequences")
-            return None, None
-
-        match = "".join(filter(str.isalpha, match))
-        seq1 = "".join(filter(str.isalpha, seq1))
-        seq2 = "".join(filter(str.isalpha, seq2))
-
-        pairScore, count = self._pair(seq1, match, seq2)
-        return pairScore, count
-
-    def pairIdAndSim(self, seq1, match, seq2):
-        idScore, idCount = self.pairID(seq1, match, seq2)
-        simScore, simCount = self.pairSim(seq1, match, seq2)
-        return idScore, idCount, simScore, simCount
-
-    model_config = ConfigDict(from_attributes=True, extra="ignore")
-
-
-class Domain(BaseModel):
-    alignment: Alignment
-    bias: float
-    c_evalue: float
-    correction: float
-    env_from: int
-    env_to: int
-    envelope_score: float
-    i_evalue: float
-    included: bool
-    pvalue: float
-    reported: bool
-    score: float
-
-    model_config = ConfigDict(from_attributes=True, extra="ignore")
-
-
-class Domains(BaseModel):
-    included: List[Domain]
-    reported: List[Domain]
-
-    model_config = ConfigDict(from_attributes=True, extra="ignore")
-
-
-class Hit(BaseModel):
-    bias: float
-    domains: Domains
-    dropped: bool
-    duplicate: bool
-    evalue: float
-    included: bool
-    length: int
-    name: str
-    new: bool
-    pre_score: float
-    pvalue: float
-    reported: bool
-    score: float
-    sum_score: float
-    metadata: Metadata = Field(alias="description")
-    index: Optional[int] = Field(default=-1)
-
-    @field_validator("metadata", mode="before")
     @classmethod
-    def transform_metadata(cls, data: Any) -> Any:
-        if isinstance(data, bytes):
-            return json.loads(data.decode())
-        if isinstance(data, str):
-            return json.loads(data)
-        return data
+    def calculate_similarity(cls, ctx):
+        if len(ctx.mline) != len(ctx.aseq):
+            return None
 
-    model_config = ConfigDict(from_attributes=True, extra="ignore")
+        match = "".join(ctx.mline.split())
+        seq1 = "".join(filter(str.isalpha, ctx.model))
+        seq2 = "".join(filter(str.isalpha, ctx.aseq))
+
+        len1 = len(seq1)
+        len2 = len(seq2)
+        number_of_identical_and_similar = len(match)
+        min_len = min(len1, len2)
+
+        if min_len and number_of_identical_and_similar:
+            return number_of_identical_and_similar / min_len, number_of_identical_and_similar
+        else:
+            return 0, 0
 
 
-class Stats(BaseModel):
-    E: float
-    T: Optional[float]
-    Z: float
-    bit_cutoffs: Optional[str]
-    domE: float
-    domT: Optional[float]
-    domZ: float
-    incE: float
-    incT: Optional[float]
-    incdomE: float
-    incdomT: Optional[float]
-    searched_models: int
-    searched_nodes: int
-    searched_residues: int
-    searched_sequences: int
-    included_hits: int = Field(alias="included")
-    reported_hits: int = Field(alias="reported")
+@dataclass()
+class P7Domain(HmmpgmdModel):
+    size: int = csfield(Int32ub)
+    """length (in bytes) of the serialized P7_DOMAIN object"""
+    ienv: int = csfield(Int64ub)
+    """"""
+    jenv: int = csfield(Int64ub)
+    """"""
+    iali: int = csfield(Int64ub)
+    """"""
+    jali: int = csfield(Int64ub)
+    """"""
+    iorf: int = csfield(Int64ub)
+    """"""
+    jorf: int = csfield(Int64ub)
+    """"""
+    envsc: float = csfield(Float32b)
+    """Forward score in envelope ienv..jenv; NATS; without null2 correction"""
+    domcorrection: float = csfield(Float32b)
+    """Null2 score when calculating a per-domain score; NATS"""
+    dombias: float = csfield(Float32b)
+    """FLogsum(0, log(bg->omega) + domcorrection): null2 score contribution; NATS"""
+    oasc: float = csfield(Float32b)
+    """Optimal accuracy score (units: expected # residues correctly aligned)"""
+    bitscore: float = csfield(Float32b)
+    """Overall score in BITS, null corrected, if this were the only domain in seq"""
+    lnP: float = csfield(Float64b)
+    """log(P-value) of the bitscore"""
+    ievalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._._.stats.Z))
+    """The independent e-value for the domain"""
+    cevalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._._.stats.domZ))
+    """The conditional e-value for the domain"""
+    is_reported: bool = csfield(Int32ub)
+    """TRUE if domain meets reporting thresholds"""
+    is_included: bool = csfield(Int32ub)
+    """TRUE if domain meets inclusion thresholds"""
+    scores_per_pos_length: int = csfield(Int32ub)
+    """"""
+    scores_per_pos: List[int] = csfield(Array(this.scores_per_pos_length, Float32b))
+    """Only used by `nhmmer --aliscoresout`; score in BITS that each pos in ali contributes to viterbi score"""
+    alignment_display: P7AlignmentDisplay = csfield(DataclassStruct(P7AlignmentDisplay))
+    """Domain's P7_ALIDISPLAY structure"""
+    display: bool = csfield(Computed(True))
+    """Whether to dispay domain"""
+    outcompeted: bool = csfield(Computed(False))
+    """Whether it is chosen as clan representative"""
+    significant: bool = csfield(Computed(False))
+    """Whether it is significant in terms of CUT_GA parameter"""
+    uniq: int = csfield(Computed(1))
+    """"""
+    segments: Optional[List[Tuple[int, int]]] = csfield(Computed(None))
+    """"""
+    predicted_active_sites: Optional[List[Tuple[str, List[int]]]] = csfield(Computed(None))
+    """Predicted active sites found after post-processing"""
 
-    @field_validator("included_hits", "reported_hits", mode="before")
-    @classmethod
-    def transform_stats(cls, data: Any) -> Any:
-        return len(data)
+    @model_serializer
+    def serialize_model(self) -> Dict[str, Any]:
+        fields_to_exclude = ["size"]
+        old_dict = asdict(self)
 
-    model_config = ConfigDict(from_attributes=True, extra="ignore")
+        return {key: old_dict[key] for key in old_dict if key not in fields_to_exclude}
+
+    def overlaps(self, other: Any, key: str):
+        [left, right] = sorted([self, other], key=lambda d: getattr(d, f"i{key}"))
+
+        if getattr(right, f"i{key}") <= getattr(left, f"j{key}"):
+            return True
+
+        return False
+
+
+@dataclass
+class P7Hit(HmmpgmdModel):
+    index: int = csfield(Computed(lambda ctx: ctx._params.start + ctx._index))
+    """Index of the hit (0-based)"""
+    size: int = csfield(Int32ub)
+    """length (in bytes) of the serialized P7_HIT object"""
+    window_length: int = csfield(Int32ub)
+    """For later use in e-value computation, when splitting long sequences"""
+    sortkey: float = csfield(Float64b)
+    """Number to sort by; big is better """
+    score: float = csfield(Float32b)
+    """Bit score of the sequence (all domains, w/ correction)"""
+    pre_score: float = csfield(Float32b)
+    """Bit score of sequence before null2 correction"""
+    sum_score: float = csfield(Float32b)
+    """Bit score reconstructed from sum of domain envelopes """
+    bias: float = csfield(Computed(lambda ctx: abs(ctx.score - ctx.pre_score)))
+    """Bias"""
+    lnP: float = csfield(Float64b)
+    """log(P-value) of the score"""
+    pre_lnP: float = csfield(Float64b)
+    """log(P-value) of the pre_score"""
+    sum_lnP: float = csfield(Float64b)
+    """log(P-value) of the sum_score"""
+    nexpected: float = csfield(Float32b)
+    """Posterior expected number of domains in the sequence (from posterior arrays)"""
+    nregions: int = csfield(Int32ub)
+    """Number of regions evaluated"""
+    nclustered: int = csfield(Int32ub)
+    """Number of regions evaluated by clustering ensemble of tracebacks"""
+    noverlaps: int = csfield(Int32ub)
+    """Number of envelopes defined in ensemble clustering that overlap w/ prev envelope"""
+    nenvelopes: int = csfield(Int32ub)
+    """Number of envelopes handed over for domain definition, null2, alignment, and scoring"""
+    ndom: int = csfield(Int32ub)
+    """Total number of domains identified in this sequence"""
+    flags: Any = csfield(FlagsEnum(Int32ub, P7HitFlags))
+    """p7_IS_REPORTED | p7_IS_INCLUDED | p7_IS_NEW | p7_IS_DROPPED"""
+    is_reported: bool = csfield(Computed(this.flags.IS_REPORTED))
+    """TRUE if hit meets reporting thresholds"""
+    is_included: bool = csfield(Computed(this.flags.IS_INCLUDED))
+    """TRUE if hit meets inclusion thresholds"""
+    is_new: bool = csfield(Computed(this.flags.IS_NEW))
+    """TRUE if hit is new"""
+    is_dropped: bool = csfield(Computed(this.flags.IS_DROPPED))
+    """TRUE if hit is dropped"""
+    nreported: int = csfield(Int32ub)
+    """Number of domains satisfying reporting thresholding"""
+    nincluded: int = csfield(Int32ub)
+    """Number of domains satisfying inclusion thresholding"""
+    best_domain: int = csfield(Int32ub)
+    """Index of best-scoring domain in dcl"""
+    seqidx: int = csfield(Int64ub)
+    """Unique identifier to track the database sequence from which this hit came"""
+    subseq_start: int = csfield(Int64ub)
+    """Used to track which subsequence of a full_length target this hit came from"""
+    string_presence_flags: Any = csfield(FlagsEnum(Int8ub, P7HitStringPresenceFlags))
+    """String presence flags"""
+    name: str = csfield(CString("utf8"))
+    """Name of the hit"""
+    acc: Optional[str] = csfield(If(this.string_presence_flags.ACC_PRESENT, CString("utf8")))
+    """Accession of the hit"""
+    desc: Optional[str] = csfield(If(this.string_presence_flags.DESC_PRESENT, CString("utf8")))
+    """Description of the hit"""
+    evalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._.stats.Z))
+    """E-value of the hit"""
+    metadata: Optional[Dict[str, Any]] = csfield(
+        If(
+            lambda ctx: ctx._params.get("with_metadata", True) and ctx._params.db_conf.metadata_model_class is not None,
+            Computed(
+                lambda ctx: ctx._params.db_conf.metadata_model_class.model_validate_json(
+                    ctx.desc, context={"db_conf": ctx._params.db_conf}
+                )
+            ),
+        )
+    )
+    """Metadata of the hit"""
+    domains: Optional[List[P7Domain]] = csfield(
+        If(lambda ctx: ctx._params.get("with_domains", False), Array(this.ndom, DataclassStruct(P7Domain)))
+    )
+    """Ndom serialized P7_DOMAIN structures"""
+
+    @model_serializer
+    def serialize_model(self) -> Dict[str, Any]:
+        fields_to_exclude = ["size", "flags", "string_presence_flags", "desc"]
+        old_dict = asdict(self)
+        old_dict["seqidx"] = int(old_dict["name"])
+        return {key: old_dict[key] for key in old_dict if key not in fields_to_exclude}
 
 
 class Result(BaseModel):
-    hits: List[Hit]
-    stats: Stats
+    stats: HmmdSearchStats
+    hits: List[P7Hit]
 
-    @field_validator("hits", mode="after")
-    @classmethod
-    def assign_index(cls, data: Any):
-        for i, hit in enumerate(data):
-            hit.index = i
-        return data
+    def post_process(self):
+        pass
 
     @classmethod
-    def from_top_hits(cls, top_hits: TopHits, job_params: dict, index: Optional[Union[int, slice]] = None):
-        db_config = None
+    def from_file(
+        cls,
+        file: os.PathLike,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        db_conf: Optional[DatabaseSettings] = None,
+        with_metadata=True,
+        with_domains=False,
+        taxonomy_ids: Optional[List[int]] = None,
+        architecture: Optional[str] = None,
+        algo: Optional[str] = None,
+        id: Optional[str] = None,
+    ) -> Tuple["Result", int]:
+        stats_format = DataclassStruct(HmmdSearchStats)
+        stats = stats_format.parse_file(file)
 
-        if "seqdb" in job_params:
-            [db_config] = [config for config in settings.HMMER.databases if config.name == job_params["seqdb"]]
+        if taxonomy_ids or architecture:
+            format = Struct(
+                "stats" / DataclassStruct(HmmdSearchStats),
+                "hits"
+                / Array(
+                    stats.nhits,
+                    Pointer(
+                        lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
+                        DataclassStruct(P7Hit),
+                    ),
+                ),
+            )
 
-            if db_config is None:
-                raise ValueError(f"No config found for {job_params['seqdb']}")
+            parsed = format.parse_file(
+                file, db_conf=db_conf, with_domains=with_domains, with_metadata=with_metadata, start=0, algo=algo, id=id
+            )
 
-        if index is None:
-            return cls.model_validate({"hits": list(top_hits), "stats": top_hits}, context={"db_conf": db_config})
-        elif isinstance(index, int):
-            return cls.model_validate({"hits": [top_hits[index]], "stats": top_hits}, context={"db_conf": db_config})
-        elif isinstance(index, slice):
-            start = index.start or 0
-            stop = index.stop or len(top_hits)
-            step = index.step or 1
+            if taxonomy_ids:
+                parsed.hits = [hit for hit in parsed.hits if hit.metadata.taxonomy_id in taxonomy_ids]
 
-            try:
-                hits = [top_hits[i] for i in range(start, stop, step)]
-            except IndexError:
-                hits = []
-            return cls.model_validate({"hits": hits, "stats": top_hits}, context={"db_conf": db_config})
+            if architecture:
+                parsed.hits = [hit for hit in parsed.hits if hit.metadata.architecture == architecture]
 
-    model_config = ConfigDict(from_attributes=True, extra="ignore")
+            total_count = len(parsed.hits)
+            parsed.hits = parsed.hits[start:end]
+
+            return parsed, total_count
+
+        start = start or 0
+        end = end or stats.nhits
+
+        if start < 0:
+            start = 0
+
+        if end > stats.nhits:
+            end = stats.nhits
+
+        length = end - start
+
+        format = Struct(
+            "stats" / DataclassStruct(HmmdSearchStats),
+            "hits"
+            / Array(
+                length,
+                Pointer(
+                    lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
+                    DataclassStruct(P7Hit),
+                ),
+            ),
+        )
+
+        return (
+            format.parse_file(
+                file,
+                db_conf=db_conf,
+                with_domains=with_domains,
+                with_metadata=with_metadata,
+                start=start,
+                algo=algo,
+                id=id,
+            ),
+            stats.nhits,
+        )
+
+    @classmethod
+    def from_data(
+        cls,
+        data: bytes,
+        start: Optional[int] = None,
+        end: Optional[int] = None,
+        db_conf: Optional[DatabaseSettings] = None,
+        with_metadata=True,
+        with_domains=False,
+        taxonomy_ids: Optional[List[int]] = None,
+        architecture: Optional[str] = None,
+        algo: Optional[str] = None,
+        id: Optional[str] = None,
+    ) -> Tuple["Result", int]:
+        stats_format = DataclassStruct(HmmdSearchStats)
+        stats = stats_format.parse(data)
+
+        if taxonomy_ids or architecture:
+            format = Struct(
+                "stats" / DataclassStruct(HmmdSearchStats),
+                "hits"
+                / Array(
+                    stats.nhits,
+                    Pointer(
+                        lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
+                        DataclassStruct(P7Hit),
+                    ),
+                ),
+            )
+
+            parsed = format.parse(
+                data, db_conf=db_conf, with_domains=with_domains, with_metadata=with_metadata, start=0, algo=algo, id=id
+            )
+
+            if taxonomy_ids:
+                parsed.hits = [hit for hit in parsed.hits if hit.metadata.taxonomy_id in taxonomy_ids]
+
+            if architecture:
+                parsed.hits = [hit for hit in parsed.hits if hit.metadata.architecture == architecture]
+
+            total_count = len(parsed.hits)
+            parsed.hits = parsed.hits[start:end]
+
+            return parsed, total_count
+
+        start = start or 0
+        end = end or stats.nhits
+
+        if start < 0:
+            start = 0
+
+        if end > stats.nhits:
+            end = stats.nhits
+
+        length = end - start
+
+        format = Struct(
+            "stats" / DataclassStruct(HmmdSearchStats),
+            "hits"
+            / Array(
+                length,
+                Pointer(
+                    lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
+                    DataclassStruct(P7Hit),
+                ),
+            ),
+        )
+
+        return (
+            format.parse(
+                data,
+                db_conf=db_conf,
+                with_domains=with_domains,
+                with_metadata=with_metadata,
+                start=start,
+                algo=algo,
+                id=id,
+            ),
+            stats.nhits,
+        )
+
+
+def post_process_pfam(result: Result):
+    all_domains = [
+        {"domain": domain, "hit": hit} for hit in result.hits for domain in filter(lambda d: d.is_included, hit.domains)
+    ]
+
+    for flat_domain in all_domains:
+        flat_domain["domain"].significant = (
+            flat_domain["hit"].score > flat_domain["hit"].metadata.seq_ga
+            and flat_domain["domain"].bitscore > flat_domain["hit"].metadata.dom_ga
+        )
+
+    for flat_domain in sorted(all_domains, key=lambda d: d["domain"].ievalue):
+        if not flat_domain["domain"].display:
+            continue
+
+        for other_flat_domain in sorted(all_domains, key=lambda d: d["domain"].ievalue):
+            if flat_domain["domain"] == other_flat_domain["domain"]:
+                continue
+
+            if flat_domain["domain"].overlaps(other_flat_domain["domain"], "ali"):
+                if other_flat_domain["hit"].metadata.identifier in flat_domain["hit"].metadata.nested:
+                    continue
+
+                if (
+                    flat_domain["hit"].metadata.clan is not None
+                    and other_flat_domain["hit"].metadata.clan is not None
+                    and flat_domain["hit"].metadata.clan == other_flat_domain["hit"].metadata.clan
+                ):
+                    other_flat_domain["domain"].display = False
+                    other_flat_domain["domain"].outcompeted = True
+
+    for i, flat_domain in enumerate(sorted(all_domains, key=lambda d: d["domain"].iali)):
+        if not flat_domain["domain"].display:
+            continue
+
+        for other_flat_domain in sorted(all_domains, key=lambda d: d["domain"].iali)[i + 1:]:
+            if not other_flat_domain["domain"].display:
+                continue
+
+            if flat_domain["domain"].overlaps(other_flat_domain["domain"], "ali"):
+                if other_flat_domain["hit"].metadata.identifier not in flat_domain["hit"].metadata.nested:
+                    continue
+
+                if flat_domain["domain"].segments is None:
+                    flat_domain["domain"].segments = [(flat_domain["domain"].ienv, flat_domain["domain"].jenv)]
+
+                j = 0
+
+                while j < len(flat_domain["domain"].segments):
+                    segment = flat_domain["domain"].segments[j]
+                    unit = {"ienv": segment[0], "jenv": segment[1]}
+
+                    if other_flat_domain["domain"].overlaps(unit, "env"):
+                        if segment[0] < other_flat_domain["domain"].ienv:
+                            segment[1] = other_flat_domain["domain"].ienv - 1
+                            if unit["jenv"] > other_flat_domain["domain"].jenv + 1:
+                                flat_domain["domain"].segments.append(
+                                    (other_flat_domain["domain"].jenv + 1, unit["jenv"])
+                                )
+                        elif segment[1] > other_flat_domain["domain"].jenv:
+                            if segment[1] > other_flat_domain["domain"].jenv + 1:
+                                segment[1] = other_flat_domain["domain"].jenv + 1
+                            else:
+                                flat_domain["domain"].segments.pop(j)
+                        else:
+                            flat_domain["domain"].segments.pop(j)
+                    else:
+                        j += 1
+
+                if len(flat_domain["domain"].segments) < 1:
+                    flat_domain["domain"].display = False
+
+
+def predict_active_sites(result: Result):
+    for hit in result.hits:
+        if hit.metadata.active_sites is None:
+            continue
+
+        for domain in hit.domains:
+            seq = list(domain.alignment_display.aseq)
+            subpattern = False
+            matched_patterns = {}
+
+            for source, patterns in hit.metadata.active_site:
+                # Check this isn't a subpattern of a bigger pattern already found on the sequence
+                # Patterns were added to @{$self->{_act_site_data}} in order of size (longest pattern first)
+                for asp in matched_patterns.keys():
+                    different = False
+                    for pattern in patterns:  # eg 'S23 T34 S56'
+                        if m := re.match(r"(\S)(\d+)", pattern):  # eg 'S23'
+                            residue, hmm_position = m.groups()
+                            hmm_position = int(hmm_position)
+                            if hmm_position in matched_patterns[asp]:
+                                continue
+                            else:
+                                different = True
+                                break
+                    if not different:
+                        subpattern = True
+                        break
+                if subpattern:
+                    continue
+
+                match = []
+
+                # Set up the counters so we know which position we are at
+                hmm_counter = domain.alignment_display.hmmfrom
+                residue_counter = domain.alignment_display.sqfrom
+
+                # Now check to see if pattern is in this sequence
+                # Put pattern into a dict
+                as_positions = {}
+                in_seq = False
+                for pattern in patterns:  # eg 'S23 T34 S56'
+                    if m := re.match(r"(\S)(\d+)", pattern):  # eg 'S23'
+                        residue, hmm_position = m.groups()
+                        hmm_position = int(hmm_position)
+                        as_positions[hmm_position] = residue
+                        if domain.alignment_display.hmmfrom <= hmm_position <= domain.alignment_display.hmmto:
+                            in_seq = True
+                if not in_seq:  # Active site residue positions are not located in this region
+                    continue
+
+                # Look for the active site pattern in the sequence
+                # Active site residues will be in match positions only
+                for aa in seq:
+                    if re.match(r"[A-Z]", aa):  # Uppercase residues are match states
+                        if hmm_counter in as_positions:  # It's an active site residue position
+                            if aa == as_positions[hmm_counter]:  # Does it have the correct aa at that position
+                                match.append(residue_counter)
+                                matched_patterns.setdefault(" ".join(patterns), {})[hmm_counter] = True
+                                del as_positions[hmm_counter]
+                                if not as_positions:
+                                    break
+                            else:
+                                break
+                        hmm_counter += 1
+                        residue_counter += 1
+                    elif aa == "-":  # Deletion in a match state position
+                        if hmm_counter in as_positions:
+                            break
+                        hmm_counter += 1
+                    elif re.match(r"[a-z]", aa):  # Lowercase residues are not match state positions
+                        if hmm_counter in as_positions:
+                            break
+                        residue_counter += 1
+                    elif aa == ".":  # '.' is not a match state position
+                        if hmm_counter in as_positions:
+                            break
+                    else:
+                        raise ValueError(f"Unrecognised character [{aa}] in {domain.alignment_display.aseq}")
+
+                if as_positions:
+                    matched_patterns.pop(" ".join(patterns), None)
+                else:
+                    if domain.predicted_active_sites is None:
+                        domain.predicted_active_sites = [(source, match)]
+                    else:
+                        domain.predicted_active_sites.append((source, match))

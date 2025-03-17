@@ -1,44 +1,101 @@
+import json
 import logging
-import pickle
-from ninja import Router, Schema, Query, Field
+import math
 
-# from typing import Any, List
-from celery.states import UNREADY_STATES, EXCEPTION_STATES
+from celery.states import SUCCESS, PENDING
+from django.conf import settings
+from ninja import Router, Schema, Query, Field
+from typing import List, Optional
+
 from search.models import HmmerJob
-from search.schema import MessageSchema
-from result.models import Result
+from .models import Result, P7Domain, post_process_pfam
 
 logger = logging.getLogger(__name__)
 
 router = Router()
 
 
-class QuerySchema(Schema):
-    limit: int = Field(10, gt=0)
-    offset: int = Field(0, ge=0)
+class ResultQuerySchema(Schema):
+    page: int = Field(default=1, gt=0)
+    page_size: int = Field(default=50, gt=0)
+    taxonomy_ids: Optional[List[int]] = Field(default=None)
+    architecture: Optional[str] = Field(default=None)
+    with_domains: Optional[bool] = Field(default=False)
 
 
-client_error_codes = frozenset({404, 409, 410})
+class ResultResponseSchema(Schema):
+    status: str
+    result: Optional[Result] = Field(default=None)
+    page_count: Optional[int] = Field(default=None)
 
 
-@router.get(
-    "/{uuid:id}",
-    response={200: Result, client_error_codes: MessageSchema},
-    tags=["result"],
-)
-def get_result(request, id: str, query: Query[QuerySchema]):
+class AlignmentQuerySchema(Schema):
+    index: int = Field(default=0, ge=0)
+
+
+class AlignmentResponseSchema(Schema):
+    status: str
+    domains: Optional[List[P7Domain]]
+
+
+@router.get("/{uuid:id}", response=ResultResponseSchema, tags=["result"])
+def get_result(request, id: str, query: Query[ResultQuerySchema]):
     job = HmmerJob.objects.get(id=id)
 
-    if job is None:
-        return 404, {"message": f"Job {id} not found."}
+    try:
+        status = job.task.status
+    except AttributeError:
+        status = PENDING
 
-    if job.task.status in UNREADY_STATES:
-        return 409, {"message": f"Job {id} is still running. Please use the status endpoint to check the status."}
+    if status != SUCCESS:
+        return {"status": status}
 
-    if job.task.status in EXCEPTION_STATES:
-        return 410, {"message": f"Job {id} failed."}
+    try:
+        db_config = settings.HMMER.databases[job.database]
+    except KeyError:
+        raise ValueError(f"Database {job.database} not found in settings")
 
-    with job.result_pkl.open("rb") as fh:
-        top_hits = pickle.load(fh)
+    result, total_count = Result.from_file(
+        json.loads(job.task.result),
+        start=(query.page - 1) * query.page_size,
+        end=query.page * query.page_size,
+        db_conf=db_config,
+        taxonomy_ids=query.taxonomy_ids,
+        with_domains=query.with_domains or job.algo == HmmerJob.AlgoChoices.HMMSCAN,
+        architecture=query.architecture,
+        algo=job.algo
+    )
 
-    return Result.from_top_hits(top_hits, job_params=job.params, index=slice(query.offset, query.offset + query.limit))
+    if job.algo == HmmerJob.AlgoChoices.HMMSCAN:
+        post_process_pfam(result)
+
+    return {"status": status, "result": result, "page_count": math.ceil(total_count / query.page_size)}
+
+
+@router.get("/{uuid:id}/domains", response=AlignmentResponseSchema, tags=["result"])
+def get_domains(request, id: str, query: Query[AlignmentQuerySchema]):
+    job = HmmerJob.objects.get(id=id)
+
+    try:
+        status = job.task.status
+    except AttributeError:
+        status = PENDING
+
+    if status != SUCCESS:
+        return {"status": status}
+
+    try:
+        db_config = settings.HMMER.databases[job.database]
+    except KeyError:
+        raise ValueError(f"Database {job.database} not found in settings")
+
+    result, _ = Result.from_file(
+        json.loads(job.task.result),
+        with_metadata=False,
+        with_domains=True,
+        start=query.index,
+        end=query.index + 1,
+        db_conf=db_config,
+    )
+
+    return {"status": status, "domains": result.hits[0].domains}

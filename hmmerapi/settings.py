@@ -33,7 +33,7 @@ SECRET_KEY = "django-insecure-+es_-5afm=y4du+nt2ypvwiaxwo6iuf8!^qjq*jbkf^(46^&3r
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ["127.0.0.1", "0.0.0.0"]
 
 
 # Application definition
@@ -51,7 +51,8 @@ INSTALLED_APPS = [
     "search",
     "result",
     "taxonomy",
-    "phmmer",
+    "architecture",
+    "download",
 ]
 
 MIDDLEWARE = [
@@ -89,13 +90,25 @@ WSGI_APPLICATION = "hmmerapi.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
-DATABASES = {
-    "default": dj_database_url.parse(
-        _django_config.database_url,
-        conn_max_age=600,
-        conn_health_checks=True,
-    ),
-}
+if _django_config.database_url is not None:
+    DATABASES = {
+        "default": dj_database_url.parse(
+            _django_config.database_url,
+            conn_max_age=600,
+            conn_health_checks=True,
+        )
+    }
+else:
+    DATABASES = {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": _django_config.database_name,
+            "USER": _django_config.database_user,
+            "PASSWORD": _django_config.database_password,
+            "HOST": _django_config.database_host,
+            "PORT": _django_config.database_port,
+        }
+    }
 
 CACHE = {
     "default": django_cache_url.parse(_django_config.cache_url),
@@ -108,6 +121,13 @@ STORAGES = {
         "OPTIONS": {
             "location": _hmmer_config.results_storage_location,
             "base_url": "/results/",
+        },
+    },
+    "downloads": {
+        "BACKEND": "django.core.files.storage.FileSystemStorage",
+        "OPTIONS": {
+            "location": _hmmer_config.downloads_storage_location,
+            "base_url": "/downloads/",
         },
     },
     "staticfiles": {
@@ -175,7 +195,10 @@ LOGGING = {
 
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
-
+    CORS_ALLOW_CREDENTIALS = True
+    ALLOWED_HOSTS += ["*"]
+    SESSION_COOKIE_SAMESITE = 'None'  
+    SESSION_COOKIE_SECURE = True  # Required when SameSite is 'None'
 
 CELERY = _celery_config
 CELERY_RESULT_BACKEND = "django-db"

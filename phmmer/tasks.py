@@ -1,25 +1,29 @@
-import pickle
-import logging
-from pyhmmer.daemon import Client
-from django.core.files.base import ContentFile
-from django_celery_results.models import TaskResult
+# import logging
+# from django.conf import settings
+# from django_celery_results.models import TaskResult
 
-from hmmerapi.celery import app
+# from hmmerapi.celery import app
+# from search.client import Client
+# from .models import PhmmerJob
 
-from .models import PhmmerJob
-
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)
 
 
-@app.task(bind=True)
-def run_phmmer(self, search_id: str):
-    logger.info(f"Running phmmer job {search_id}")
-    job = PhmmerJob.objects.get(id=search_id)
-    task_result = TaskResult.objects.get(task_id=search_id)
-    job.task = task_result
-    job.save()
+# @app.task(bind=True)
+# def run_phmmer(self, job_id: str):
+#     logger.debug(f"Running phmmer job {job_id}")
 
-    with Client(**job.get_hmmpgmd_connection_params()) as client:
-        top_hits = client.search_seq(**job.get_hmmpgmd_kwargs())
+#     job = PhmmerJob.objects.get(id=job_id)
+#     task_result = TaskResult.objects.get(task_id=self.request.id)
+#     job.task = task_result
+#     job.save()
 
-    job.result_pkl.save(f"{search_id}.pkl", ContentFile(pickle.dumps(top_hits)))
+#     [db_config] = [config for config in settings.HMMER.databases if config.name == job.database]
+
+#     if db_config is None:
+#         raise ValueError(f"No config found for {self.database}")
+
+#     with Client(address=db_config.host, port=db_config.port) as client:
+#         path = client.search(job)
+
+#     return path

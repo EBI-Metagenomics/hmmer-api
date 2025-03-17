@@ -1,56 +1,44 @@
-from django.conf import settings
+# from django.conf import settings
+# from django.db import models
+# from search.models.job import HmmerJob
 
-from search.models.job import HmmerJob
-from pyhmmer.easel import TextSequence
 
+# class PhmmerJob(HmmerJob):
+#     class MXEnum(models.TextChoices):
+#         BLOSUM62 = "BLOSUM62"
+#         BLOSUM45 = "BLOSUM45"
+#         BLOSUM90 = "BLOSUM90"
+#         PAM30 = "PAM30"
+#         PAM70 = "PAM70"
+#         PAM250 = "PAM250"
 
-class PhmmerJob(HmmerJob):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self.algo = "PHMMER"
+#     database = models.CharField(max_length=32)
+#     sequence = models.TextField()
 
-    def get_db_id(self):
-        [db_config] = [config for config in settings.HMMER.databases if config.name == self.params["seqdb"]]
-        if db_config is None:
-            raise ValueError(f"No config found for {self.params['seqdb']}")
-        return db_config.db
+#     E = models.FloatField(default=1.0, null=True, blank=True)
+#     domE = models.FloatField(default=1.0, null=True, blank=True)
+#     T = models.FloatField(default=7.0, null=True, blank=True)
+#     domT = models.FloatField(default=5.0, null=True, blank=True)
+#     incE = models.FloatField(default=0.01, null=True, blank=True)
+#     incdomE = models.FloatField(default=0.03, null=True, blank=True)
+#     incT = models.FloatField(default=25.0, null=True, blank=True)
+#     incdomT = models.FloatField(default=22.0, null=True, blank=True)
+#     popen = models.FloatField(default=0.02, null=True, blank=True)
+#     pextend = models.FloatField(default=0.4, null=True, blank=True)
+#     mx = models.CharField(max_length=16, choices=MXEnum.choices, default=MXEnum.BLOSUM62)
 
-    def get_hmmpgmd_kwargs(self):
-        kwargs = super().get_hmmpgmd_kwargs()
-        kwargs["db"] = self.get_db_id()
+#     def get_hmmpgmd_db(self):
+#         [db_config] = [config for config in settings.HMMER.databases if config.name == self.database]
 
-        header, sequence = self._parse_fasta()
-        print(f"'{header}'", f"'{sequence}'")
-        kwargs["query"] = TextSequence(sequence=sequence, name=(header or "Query").encode())
+#         if db_config is None:
+#             raise ValueError(f"No config found for {self.database}")
 
-        return kwargs
+#         return f"--seqdb {db_config.db}"
 
-    def get_hmmpgmd_connection_params(self):
-        [db_config] = [config for config in settings.HMMER.databases if config.name == self.params["seqdb"]]
-        if db_config is None:
-            raise ValueError(f"No config found for {self.params['seqdb']}")
-        return {
-            "address": db_config.host,
-            "port": db_config.port,
-        }
+#     def get_hmmpgmd_parameters(self):
+#         parameters_to_exclude = ["threshold"]
 
-    def _parse_fasta(self):
-        if not self.params["seq"]:
-            return None, None
+#         return " ".join(f"-{key} {value}" for key, value in self.params.items() if key not in parameters_to_exclude)
 
-        lines = self.params["seq"].strip().split("\n")
-
-        if not lines:
-            return None, None
-
-        # Check if it's in FASTA format
-        if lines[0].startswith(">"):
-            header = lines[0][1:].strip()  # Remove '>' and whitespace
-            sequence = "".join(line.strip() for line in lines[1:])
-            return header, sequence
-
-        # If not in FASTA format, treat as raw sequence
-        return None, "".join(line.strip() for line in lines)
-
-    class Meta:
-        proxy = True
+#     def get_hmmpgmd_query(self):
+#         return self.sequence

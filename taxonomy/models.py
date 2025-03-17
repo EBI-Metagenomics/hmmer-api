@@ -1,17 +1,29 @@
-from typing import List
+import itertools
+import math
+import numpy as np
+from typing import List, Optional
 from django.db import models
 from django.core import serializers
-from django.core.files.storage import storages
+from django.contrib.postgres.search import SearchVector, SearchVectorField
 from treebeard.mp_tree import MP_Node, get_result_class
-from django_celery_results.models import TaskResult
-from result.models import Hit
-from search.models import HmmerJob
+from pydantic import BaseModel
+from result.models import Result, P7Hit
+
+
+def format_evalue(value: float):
+    if value < 0.0001:
+        return f"{value:.1e}"
+    else:
+        return f"{value:.6g}"
 
 
 class Taxonomy(MP_Node):
     taxonomy_id = models.IntegerField(unique=True)
     name = models.CharField(max_length=255)
     rank = models.CharField(max_length=255)
+    search = models.GeneratedField(
+        db_persist=True, expression=SearchVector("name", config="simple"), output_field=SearchVectorField()
+    )
 
     class Meta:
         indexes = [models.Index(fields=["taxonomy_id"])]
@@ -52,10 +64,6 @@ class Taxonomy(MP_Node):
             lnk[path] = newobj
         return ret
 
-    @classmethod
-    def build_distribution_tree(cls, db: str, hits: List[Hit]):
-        taxonomy_ids = set([hit.metadata.taxonomy_id for hit in hits])
-        species = cls.objects.filter(range__database=db, taxonomy_id__in=taxonomy_ids).distinct().order_by("depth", "path")
 
 class Range(models.Model):
     database = models.CharField(max_length=32)
@@ -64,21 +72,125 @@ class Range(models.Model):
     end = models.IntegerField(null=True, blank=True)
 
 
-class TaxonomyJob(models.Model):
-    task = models.OneToOneField(
-        TaskResult,
-        to_field="task_id",
-        null=True,
-        blank=True,
-        on_delete=models.CASCADE,
-        related_name="taxonomy_job",
-    )
+class TaxonomyResult(BaseModel):
+    taxonomy_id: int | None
+    species: str | None
+    count: int
 
-    tree = models.FileField(
-        null=True,
-        blank=True,
-        upload_to="%Y/%m/%d",
-        storage=storages["results"],
-    )
+    @classmethod
+    def from_result(cls, result: Result):
+        taxonomy_aggregation: List[TaxonomyResult] = []
 
-    hmmer_job = models.ForeignKey(HmmerJob, on_delete=models.CASCADE, related_name="taxonomy_job")
+        for taxonomy_id, group in itertools.groupby(
+            sorted(result.hits, key=lambda hit: hit.metadata.taxonomy_id or -1),
+            key=lambda hit: hit.metadata.taxonomy_id,
+        ):
+            hits = list(group)
+            taxonomy_aggregation.append(
+                TaxonomyResult(taxonomy_id=taxonomy_id, species=hits[0].metadata.species or "Unknown", count=len(hits))
+            )
+
+        return sorted(taxonomy_aggregation, key=lambda row: row.count, reverse=True)
+
+
+class TaxonomyTree(BaseModel):
+    id: int
+    name: str
+    hitcount: Optional[int]
+    hitdist: Optional[List[int]]
+    children: "Optional[List[TaxonomyTree]]"
+
+    @classmethod
+    def from_result(cls, result: Result):
+        min_hit = min(result.hits, key=lambda hit: hit.evalue)
+        max_hit = max(result.hits, key=lambda hit: hit.evalue)
+        bins = np.linspace(min_hit.evalue, max_hit.evalue, 31)
+        hit_distribution = [0] * 30
+
+        for hit in result.hits:
+            for i in range(len(bins) - 1):
+                if bins[i] <= hit.evalue < bins[i + 1]:
+                    hit_distribution[i] += 1
+
+        sorted_hits = sorted(result.hits, key=lambda hit: hit.metadata.lineage[0] or np.inf)
+        grouped_hits = itertools.groupby(sorted_hits, key=lambda hit: hit.metadata.lineage[0] or np.inf)
+        children = [TaxonomyTree.build_tree(list(group)) for _, group in grouped_hits]
+
+        return TaxonomyTree(id=1, name="All", hitdist=hit_distribution, hitcount=len(result.hits), children=children)
+
+    @classmethod
+    def build_tree(cls, hits: List[P7Hit], depth=0):
+        if hits[0].metadata.lineage[depth] is None:
+            return TaxonomyTree.build_tree(hits, depth=depth + 1)
+
+        min_hit = min(hits, key=lambda hit: hit.evalue)
+        max_hit = max(hits, key=lambda hit: hit.evalue)
+        bins = np.linspace(min_hit.evalue, max_hit.evalue, 31)
+        hit_distribution = [0] * 30
+
+        for hit in hits:
+            for i in range(len(bins) - 1):
+                if bins[i] <= hit.evalue < bins[i + 1]:
+                    hit_distribution[i] += 1
+
+        sorted_hits = sorted(hits, key=lambda hit: hit.metadata.lineage[depth] or np.inf)
+        grouped_hits = itertools.groupby(sorted_hits, key=lambda hit: hit.metadata.lineage[depth] or np.inf)
+        id = hits[0].metadata.lineage[depth]
+        taxonomy = Taxonomy.objects.get(taxonomy_id=id)
+
+        if depth >= len(hits[0].metadata.lineage) - 1:
+            children = None
+        else:
+            children = [TaxonomyTree.build_tree(list(group), depth=depth + 1) for _, group in grouped_hits]
+
+        return TaxonomyTree(id=id, name=taxonomy.name, hitdist=hit_distribution, hitcount=len(hits), children=children)
+
+
+class TaxonomyDistributionGraph(BaseModel):
+    data: List[List[int]]
+    labels: List[str]
+    categories: List[str]
+    colors: List[str]
+
+    @classmethod
+    def from_result(cls, result: Result) -> "TaxonomyDistributionGraph":
+        number_of_bins = 30
+
+        color_map = {
+            "bacteria": "#b65417",
+            "archaea": "#3b6fb6",
+            "eukaryota": "#f4c61f",
+            "viruses": "#d41645",
+            "unclassified sequences": "#a9abaa",
+            "other sequences": "#373a36",
+        }
+
+        superkingdoms_map = {
+            name.lower(): taxonomy_id
+            for name, taxonomy_id in Taxonomy.objects.filter(rank="superkingdom").values_list("name", "taxonomy_id")
+        }
+
+        taxonomy_id_lookup = {taxonomy_id: taxonomy_id for taxonomy_id in superkingdoms_map.values()}
+
+        if "unclassified entries" in superkingdoms_map:
+            taxonomy_id_lookup[superkingdoms_map["unclassified entries"]] = superkingdoms_map["unclassified sequences"]
+
+        if "other entries" in superkingdoms_map:
+            taxonomy_id_lookup[superkingdoms_map["other entries"]] = superkingdoms_map["other sequences"]
+
+        values = [-math.log(hit.evalue) if hit.evalue > 0 else 1000 for hit in result.hits if hit.is_included]
+        superkingdoms = [taxonomy_id_lookup[hit.metadata.lineage[0]] for hit in result.hits if hit.is_included]
+
+        bins_y = np.unique(list(taxonomy_id_lookup.values()))
+        bins_y = np.append(bins_y, bins_y[-1] + 1)
+        histogram, x_edges, _ = np.histogram2d(values, superkingdoms, bins=[number_of_bins, bins_y])
+
+        return {
+            "data": histogram.tolist(),
+            "labels": [
+                f"{format_evalue(math.exp(-x_edges[i]))} ≤ e-value < {format_evalue(math.exp(-x_edges[i + 1]))}"
+                for i in range(number_of_bins)
+            ],
+            "categories": map(str.title, color_map.keys()),
+            "colors": list(color_map.values()),
+        }

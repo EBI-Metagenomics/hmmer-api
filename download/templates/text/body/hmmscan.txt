@@ -1,0 +1,10 @@
+
+{% for hit in hits %}{% for domain in hit.domains %}{% if domain.is_included %}{{ hit.metadata.identifier }} {{ hit.metadata.accession }} {{ hit.metadata.clan }} {{ domain.ienv }} {{ domain.jenv }} {{ domain.alignment_display.sqfrom }} {{ domain.alignment_display.sqto }} {{ domain.alignment_display.hmmfrom }} {{ domain.alignment_display.hmmto }} {{ domain.bitscore|floatformat }} {{ domain.ievalue|stringformat:".2e" }} {{ domain.cevalue|stringformat:".2e" }} {{ hit.metadata.description }}
+---------------------------------------------------------------------------------------------------------------------------------
+MODEL  {{ domain.alignment_display.model }}
+MATCH  {{ domain.alignment_display.mline }}
+PPL    {{ domain.alignment_display.ppline }}
+SEQ    {{ domain.alignment_display.aseq }}
+==================================================================================================================================
+
+{% endif %}{% endfor %}{% endfor %}
