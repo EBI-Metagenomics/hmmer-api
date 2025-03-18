@@ -7,7 +7,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class DjangoSettings(BaseSettings):
-    database_url: str = f"sqlite:///{BASE_DIR / 'db.sqlite3'}"
+    database_url: Optional[str] = None
     cache_url: str = "dummy://"
 
     database_name: str = "hmmer"
