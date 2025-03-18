@@ -16,6 +16,20 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 FROM python:3.13-bookworm
 
+# This is to enable NFS share access
+ENV USER=docker
+ENV UID=4050
+ENV GID=1223
+RUN addgroup --gid "$GID" "$USER" \
+  && adduser \
+  --disabled-password \
+  --gecos "" \
+  --home "$(pwd)" \
+  --ingroup "$USER" \
+  --no-create-home \
+  --uid "$UID" \
+  "$USER"
+
 COPY --from=builder --chown=app:app /app /app
 
 ENV PATH="/app/.venv/bin:$PATH"
