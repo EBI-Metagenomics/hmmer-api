@@ -30,7 +30,8 @@ class Client:
 
     def search(self, db_cmd: str, parameters: str, query: str, path: Optional[os.PathLike] = None) -> Optional[bytes]:
 
-        command = f"@{db_cmd} {parameters}\n{query}\n//"
+        # command = f"@{db_cmd} {parameters}\n{query}\n//"
+        command = f"@{db_cmd}\n{query}\n//"
         logger.debug(f"Sending command: {command}")
 
         self.socket.sendall(command.encode("ascii"))
