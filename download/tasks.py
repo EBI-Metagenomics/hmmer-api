@@ -51,5 +51,5 @@ def generate(self, job_id: str):
 
     if file_job.format in {"afa", "stockholm", "clustal", "psiblast", "phylip"}:
         build_strategy = MSABuildStrategy(file_job.job.input, file_job.format, result, db_config)
-    time.sleep(5)
+
     build_strategy.build(file_job.file.path)
