@@ -15,6 +15,8 @@ Including another URLconf
     2. Add a URL to urlpatterns:  path('blog/', include('blog.urls'))
 """
 
+from urllib.parse import urljoin
+
 from django.contrib import admin
 from django.urls import path
 from django.conf import settings
@@ -25,9 +27,6 @@ from download.views import serve
 
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
-    path("api/v1/", api_v1.urls),
-]
-
-if settings.DEBUG:
-    urlpatterns += static("/downloads/", view=serve)
+    path(urljoin(settings.BASE_URL, "admin/"), admin.site.urls),
+    path(urljoin(settings.BASE_URL, "api/v1/"), api_v1.urls),
+] + static(urljoin("/" + settings.BASE_URL, "downloads/"), view=serve)

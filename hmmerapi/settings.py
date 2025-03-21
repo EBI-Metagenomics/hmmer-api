@@ -13,6 +13,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 import os
 import dj_database_url
 import django_cache_url
+from urllib.parse import urljoin
 from pathlib import Path
 from .config import HmmerSettings, DjangoSettings, CelerySettings
 
@@ -120,21 +121,21 @@ STORAGES = {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
         "OPTIONS": {
             "location": _hmmer_config.results_storage_location,
-            "base_url": "/results/",
+            "base_url": urljoin("/" + _django_config.base_url, "results/"),
         },
     },
     "downloads": {
         "BACKEND": "django.core.files.storage.FileSystemStorage",
         "OPTIONS": {
             "location": _hmmer_config.downloads_storage_location,
-            "base_url": "/downloads/",
+            "base_url": urljoin("/" + _django_config.base_url, "downloads/"),
         },
     },
     "staticfiles": {
         "BACKEND": "django.contrib.staticfiles.storage.StaticFilesStorage",
         "OPTIONS": {
             "location": BASE_DIR / "static",
-            "base_url": "/static/",
+            "base_url": urljoin("/" + _django_config.base_url, "static/"),
         },
     },
 }
@@ -172,7 +173,7 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 
-STATIC_URL = "static/"
+STATIC_URL = urljoin(_django_config.base_url, "static/")
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.0/ref/settings/#default-auto-field
@@ -193,11 +194,13 @@ LOGGING = {
     },
 }
 
+BASE_URL = _django_config.base_url
+
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True
     CORS_ALLOW_CREDENTIALS = True
     ALLOWED_HOSTS += ["*"]
-    SESSION_COOKIE_SAMESITE = 'None'  
+    SESSION_COOKIE_SAMESITE = "None"
     SESSION_COOKIE_SECURE = True  # Required when SameSite is 'None'
 
 CELERY = _celery_config
