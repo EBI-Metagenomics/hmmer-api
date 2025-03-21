@@ -1,5 +1,6 @@
 import logging
 from celery.states import UNREADY_STATES, EXCEPTION_STATES
+from django.conf import settings
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
 from ninja import Router, Schema
@@ -99,7 +100,8 @@ def get_downloads(request, id: str):
         size = None
 
         if status == "AVAILABLE":
-            url = request.build_absolute_uri(file_job.file.url)
+            scheme = "https" if settings.BUILD_HTTPS_DOWNLOAD_URLS else request.scheme
+            url = request.build_absolute_uri(f"{scheme}://{request.get_host()}{file_job.file.url}")
             size = file_job.file.size
 
         downloads.append(

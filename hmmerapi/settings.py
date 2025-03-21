@@ -195,6 +195,7 @@ LOGGING = {
 }
 
 BASE_URL = _django_config.base_url
+BUILD_HTTPS_DOWNLOAD_URLS = _django_config.build_https_download_urls
 
 if DEBUG:
     CORS_ALLOW_ALL_ORIGINS = True

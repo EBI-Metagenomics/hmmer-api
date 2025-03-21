@@ -8,6 +8,8 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 class DjangoSettings(BaseSettings):
     base_url: str = ""  # for EBI use 'Tools/hmmer/' (no leading slash)
+    build_https_download_urls: bool = False
+
     database_url: Optional[str] = None
     cache_url: str = "dummy://"
 
