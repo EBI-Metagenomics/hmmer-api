@@ -1,6 +1,6 @@
 import logging
 import json
-import time
+
 from django.conf import settings
 from django.core.files.base import ContentFile
 from django_celery_results.models import TaskResult
