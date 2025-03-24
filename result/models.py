@@ -2,7 +2,6 @@ import io
 import os
 import re
 import math
-import logging
 
 from construct import (
     Float64b,
