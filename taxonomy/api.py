@@ -1,15 +1,13 @@
 import json
 import logging
 from typing import List, Optional
-from django.conf import settings
 from django.contrib.postgres.search import SearchQuery
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
 from ninja import Router, ModelSchema, Schema, Field
 from celery.states import SUCCESS, PENDING
 from search.models import HmmerJob
-from result.models import Result
-from .models import Taxonomy, TaxonomyResult, TaxonomyTree, TaxonomyDistributionGraph
+from .models import Taxonomy, TaxonomyTree, TaxonomyDistributionGraph
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +15,6 @@ router = Router()
 
 
 class TaxonomyDistributionResponseSchema(Schema):
-    status: str
-    distribution: Optional[List[TaxonomyResult]] = Field(default=None)
-
-
-class TaxonomyDistributionGraphResponseSchema(Schema):
     status: str
     graph: Optional[TaxonomyDistributionGraph] = Field(default=None)
 
@@ -65,35 +58,11 @@ def search_taxonomy(request, q: str):
 
 
 @router.get("/{id}", response=TaxonomyResponseSchema, tags=["taxonomy"])
-def get_taxonomy(request, id: int, ):
+def get_taxonomy(
+    request,
+    id: int,
+):
     return get_object_or_404(Taxonomy, taxonomy_id=id)
-
-
-@router.get("/{uuid:id}/distribution", response=TaxonomyDistributionResponseSchema, tags=["taxonomy"])
-def get_taxonomy_distribution(request, id: str):
-    job = HmmerJob.objects.get(id=id)
-
-    try:
-        search_status = job.task.status
-    except AttributeError:
-        search_status = PENDING
-
-    try:
-        taxonomy_distribution_status = job.taxonomy_tree_task.status
-    except AttributeError:
-        taxonomy_distribution_status = PENDING
-
-    if search_status != SUCCESS or taxonomy_distribution_status != SUCCESS:
-        return {"status": taxonomy_distribution_status}
-
-    try:
-        db_config = settings.HMMER.databases[job.database]
-    except KeyError:
-        raise ValueError(f"Database {job.database} not found in settings")
-
-    result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config)
-
-    return {"status": SUCCESS, "distribution": TaxonomyResult.from_result(result)}
 
 
 @router.get("/{uuid:id}/tree", response=TaxonomyTreeResponseSchema, tags=["taxonomy"])
@@ -117,8 +86,8 @@ def get_taxonomy_tree(request, id: str):
         return {"status": SUCCESS, "tree": json.load(fh)}
 
 
-@router.get("/{uuid:id}/disdtribution-graph", response=TaxonomyDistributionGraphResponseSchema, tags=["taxonomy"])
-def get_taxonomy_distribution_graph(request, id: str):
+@router.get("/{uuid:id}/distribution", response=TaxonomyDistributionResponseSchema, tags=["taxonomy"])
+def get_taxonomy_distribution(request, id: str):
     job = HmmerJob.objects.get(id=id)
 
     try:

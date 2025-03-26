@@ -595,7 +595,7 @@ class Result(BaseModel):
             )
 
             if taxonomy_ids:
-                parsed.hits = [hit for hit in parsed.hits if hit.metadata.taxonomy_id in taxonomy_ids]
+                parsed.hits = [hit for hit in parsed.hits if set(hit.metadata.lineage) & set(taxonomy_ids)]
 
             if architecture:
                 parsed.hits = [hit for hit in parsed.hits if hit.metadata.architecture == architecture]

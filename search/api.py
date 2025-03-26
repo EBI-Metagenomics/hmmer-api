@@ -13,7 +13,7 @@ from pyhmmer.plan7 import HMMFile
 from typing import List
 
 from architecture.tasks import build_architecture, build_annotation
-from taxonomy.tasks import build_taxonomy_distribution, build_taxonomy_tree, build_taxonomy_distribution_graph
+from taxonomy.tasks import build_taxonomy_tree, build_taxonomy_distribution_graph
 from .tasks import run_search
 from .models import HmmerJob
 
@@ -100,7 +100,6 @@ def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequest
 
     if job.algo != HmmerJob.AlgoChoices.HMMSCAN and job.with_taxonomy:
         tasks += [
-            build_taxonomy_distribution.si(job.id),
             build_taxonomy_tree.si(job.id),
             build_taxonomy_distribution_graph.si(job.id),
         ]

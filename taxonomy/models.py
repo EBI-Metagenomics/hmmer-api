@@ -102,48 +102,42 @@ class TaxonomyTree(BaseModel):
 
     @classmethod
     def from_result(cls, result: Result):
-        min_hit = min(result.hits, key=lambda hit: hit.evalue)
-        max_hit = max(result.hits, key=lambda hit: hit.evalue)
-        bins = np.linspace(min_hit.evalue, max_hit.evalue, 31)
-        hit_distribution = [0] * 30
-
-        for hit in result.hits:
-            for i in range(len(bins) - 1):
-                if bins[i] <= hit.evalue < bins[i + 1]:
-                    hit_distribution[i] += 1
-
+        histogram, _ = np.histogram([-math.log(hit.evalue) for hit in result.hits], bins=30)
         sorted_hits = sorted(result.hits, key=lambda hit: hit.metadata.lineage[0] or np.inf)
         grouped_hits = itertools.groupby(sorted_hits, key=lambda hit: hit.metadata.lineage[0] or np.inf)
         children = [TaxonomyTree.build_tree(list(group)) for _, group in grouped_hits]
 
-        return TaxonomyTree(id=1, name="All", hitdist=hit_distribution, hitcount=len(result.hits), children=children)
+        return TaxonomyTree(id=1, name="All", hitdist=histogram.tolist(), hitcount=len(result.hits), children=children)
 
     @classmethod
     def build_tree(cls, hits: List[P7Hit], depth=0):
-        if hits[0].metadata.lineage[depth] is None:
-            return TaxonomyTree.build_tree(hits, depth=depth + 1)
+        if depth < len(hits[0].metadata.lineage) - 1:
+            if hits[0].metadata.lineage[depth] is None:
+                return TaxonomyTree.build_tree(hits, depth=depth + 1)
 
-        min_hit = min(hits, key=lambda hit: hit.evalue)
-        max_hit = max(hits, key=lambda hit: hit.evalue)
-        bins = np.linspace(min_hit.evalue, max_hit.evalue, 31)
-        hit_distribution = [0] * 30
+            histogram, _ = np.histogram([-math.log(hit.evalue) for hit in hits], bins=30)
+            id = hits[0].metadata.lineage[depth]
+            taxonomy = Taxonomy.objects.get(taxonomy_id=id)
+            sorted_hits = sorted(hits, key=lambda hit: hit.metadata.lineage[depth + 1] or np.inf)
+            grouped_hits = itertools.groupby(sorted_hits, key=lambda hit: hit.metadata.lineage[depth + 1] or np.inf)
+            children = filter(
+                None, [TaxonomyTree.build_tree(list(group), depth=depth + 1) for _, group in grouped_hits]
+            )
 
-        for hit in hits:
-            for i in range(len(bins) - 1):
-                if bins[i] <= hit.evalue < bins[i + 1]:
-                    hit_distribution[i] += 1
-
-        sorted_hits = sorted(hits, key=lambda hit: hit.metadata.lineage[depth] or np.inf)
-        grouped_hits = itertools.groupby(sorted_hits, key=lambda hit: hit.metadata.lineage[depth] or np.inf)
-        id = hits[0].metadata.lineage[depth]
-        taxonomy = Taxonomy.objects.get(taxonomy_id=id)
-
-        if depth >= len(hits[0].metadata.lineage) - 1:
-            children = None
+            return TaxonomyTree(
+                id=id, name=taxonomy.name, hitdist=histogram.tolist(), hitcount=len(hits), children=children
+            )
         else:
-            children = [TaxonomyTree.build_tree(list(group), depth=depth + 1) for _, group in grouped_hits]
+            if hits[0].metadata.lineage[depth] is None:
+                return None
 
-        return TaxonomyTree(id=id, name=taxonomy.name, hitdist=hit_distribution, hitcount=len(hits), children=children)
+            histogram, _ = np.histogram([-math.log(hit.evalue) for hit in hits], bins=30)
+            id = hits[0].metadata.lineage[depth]
+            taxonomy = Taxonomy.objects.get(taxonomy_id=id)
+
+            return TaxonomyTree(
+                id=id, name=taxonomy.name, hitdist=histogram.tolist(), hitcount=len(hits), children=None
+            )
 
 
 class TaxonomyDistributionGraph(BaseModel):
