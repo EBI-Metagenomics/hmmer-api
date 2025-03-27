@@ -241,6 +241,8 @@ class HmmdSearchStats(HmmpgmdModel):
     """UUID of the search/scan job"""
     algo: str = csfield(Computed(lambda ctx: ctx._params.get("algo", "unknown")))
     """Algorith by which the search was performed"""
+    database: str = csfield(Computed(lambda ctx: ctx._params.get("database", "unknown")))
+    """Target database"""
     elapsed: float = csfield(Float64b)
     """Elapsed time, seconds"""
     user: float = csfield(Float64b)
@@ -591,7 +593,14 @@ class Result(BaseModel):
             )
 
             parsed = format.parse_file(
-                file, db_conf=db_conf, with_domains=with_domains, with_metadata=with_metadata, start=0, algo=algo, id=id
+                file,
+                db_conf=db_conf,
+                with_domains=with_domains,
+                with_metadata=with_metadata,
+                start=0,
+                algo=algo,
+                id=id,
+                database=db_conf.name if db_conf else None,
             )
 
             if taxonomy_ids:
@@ -637,6 +646,7 @@ class Result(BaseModel):
                 start=start,
                 algo=algo,
                 id=id,
+                database=db_conf.name if db_conf else None,
             ),
             stats.nhits,
         )
@@ -672,7 +682,14 @@ class Result(BaseModel):
             )
 
             parsed = format.parse(
-                data, db_conf=db_conf, with_domains=with_domains, with_metadata=with_metadata, start=0, algo=algo, id=id
+                data,
+                db_conf=db_conf,
+                with_domains=with_domains,
+                with_metadata=with_metadata,
+                start=0,
+                algo=algo,
+                id=id,
+                database=db_conf.name if db_conf else None,
             )
 
             if taxonomy_ids:
@@ -718,6 +735,7 @@ class Result(BaseModel):
                 start=start,
                 algo=algo,
                 id=id,
+                database=db_conf.name if db_conf else None,
             ),
             stats.nhits,
         )
