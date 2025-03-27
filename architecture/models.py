@@ -1,9 +1,7 @@
 from dataclasses import asdict
-import logging
 from django.db import models
 from django.contrib.postgres.aggregates import ArrayAgg
-from pydantic import BaseModel, Field, AliasGenerator, ConfigDict, model_validator
-from pydantic.alias_generators import to_camel, to_snake
+from pydantic import BaseModel, Field, model_validator
 from typing import List
 from result.models import Result
 
@@ -19,6 +17,9 @@ class Architecture(models.Model):
     @classmethod
     def from_results(cls, result: Result, database: str):
         sequence_indexes = [int(hit.name) for hit in result.hits]
+        sequence_accessions = {int(hit.name): hit.metadata.accession for hit in result.hits}
+        sequence_external_links = {int(hit.name): hit.metadata.external_link for hit in result.hits}
+        sequence_evalues = {int(hit.name): hit.evalue for hit in result.hits}
 
         grouped = (
             Architecture.objects.filter(sequence_index__in=sequence_indexes)
@@ -37,6 +38,8 @@ class Architecture(models.Model):
                 [
                     {
                         "sequence_index": sequence_index,
+                        "sequence_accession": sequence_accessions[sequence_index],
+                        "sequence_external_link": sequence_external_links[sequence_index],
                         "accessions": group["accessions"],
                         "names": group["names"],
                         "score": score,
@@ -46,7 +49,7 @@ class Architecture(models.Model):
                         group["sequence_index_list"], group["score_list"], group["graphics_list"]
                     )
                 ],
-                key=lambda architecture: architecture["score"],
+                key=lambda architecture: (architecture["score"], -sequence_evalues[architecture["sequence_index"]]),
                 reverse=True,
             )
             for group in grouped

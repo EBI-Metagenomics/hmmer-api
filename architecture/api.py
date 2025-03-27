@@ -1,11 +1,8 @@
 import json
 import logging
-import math
 
 from celery.states import SUCCESS, PENDING
-from django.conf import settings
-from django.shortcuts import get_object_or_404
-from ninja import Router, ModelSchema, Schema, Query, Field
+from ninja import Router, ModelSchema, Schema, Field
 from typing import List, Optional
 
 from search.models import HmmerJob
@@ -17,6 +14,9 @@ router = Router()
 
 
 class ArchitectureSchema(ModelSchema):
+    sequence_accession: Optional[str] = None
+    sequence_external_link: Optional[str] = None
+
     class Meta:
         model = Architecture
         fields = ["names", "score", "graphics", "accessions"]
