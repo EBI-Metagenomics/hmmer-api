@@ -1,5 +1,6 @@
 import logging
 import json
+import hashlib
 
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -32,9 +33,13 @@ def generate(self, job_id: str):
         with_domains=True,
         algo=file_job.job.algo,
         id=file_job.job.id,
+        taxonomy_ids=file_job.filters["taxonomy_ids"],
+        architecture=file_job.filters["architecture"]
     )
 
-    file_name = f"{file_job.job.id}.{formats[file_job.format]["extension"]}"
+    filters_hash = hashlib.sha1(json.dumps(file_job.filters, sort_keys=True).encode()).hexdigest()[:16]
+
+    file_name = f"{file_job.job.id}-{filters_hash}.{formats[file_job.format]["extension"]}"
 
     if "gzip" in formats[file_job.format] and formats[file_job.format]["gzip"]:
         file_name += ".gz"

@@ -3,7 +3,7 @@ from celery.states import UNREADY_STATES, EXCEPTION_STATES
 from django.conf import settings
 from django.http import HttpResponse
 from django.shortcuts import get_object_or_404
-from ninja import Router, Schema
+from ninja import Router, Schema, Query
 from typing import List, Optional
 
 from search.models import HmmerJob
@@ -24,8 +24,13 @@ class DownloadsResponseSchema(Schema):
     size: Optional[int]
 
 
+class DownloadsQuerySchema(Schema):
+    taxonomy_ids: List[int] = None
+    architecture: str = None
+
+
 @router.post("/{uuid:id}/{format}", response={204: None}, tags=["download"])
-def generate_file(request, id: str, format: str):
+def generate_file(request, id: str, format: str, query: Query[DownloadsQuerySchema]):
     hmmer_job = HmmerJob.objects.get(id=id)
 
     if hmmer_job.task.status in UNREADY_STATES:
@@ -37,7 +42,7 @@ def generate_file(request, id: str, format: str):
     if format not in allowed_formats[hmmer_job.algo]:
         return 400, f"Format {format} is not available for {hmmer_job.algo}"
 
-    file_job, created = FileJob.objects.get_or_create(job=hmmer_job, format=format)
+    file_job, created = FileJob.objects.get_or_create(job=hmmer_job, format=format, filters=query.dict())
 
     if created:
         generate.delay_on_commit(file_job.id)
@@ -46,8 +51,8 @@ def generate_file(request, id: str, format: str):
 
 
 @router.get("/{uuid:id}/{format}", tags=["download"])
-def download_file(request, id: str, format):
-    file_job = get_object_or_404(FileJob, job__id=id, format=format)
+def download_file(request, id: str, format: str, query: Query[DownloadsQuerySchema]):
+    file_job = get_object_or_404(FileJob, job__id=id, format=format, filters=query.dict())
 
     status = "AVAILABLE"
 
@@ -70,7 +75,7 @@ def download_file(request, id: str, format):
 
 
 @router.get("/{uuid:id}", response=List[DownloadsResponseSchema], tags=["download"])
-def get_downloads(request, id: str):
+def get_downloads(request, id: str, query: Query[DownloadsQuerySchema]):
     hmmer_job = HmmerJob.objects.get(id=id)
 
     if hmmer_job.task.status in UNREADY_STATES:
@@ -79,7 +84,7 @@ def get_downloads(request, id: str):
     if hmmer_job.task.status in EXCEPTION_STATES:
         return 500, f"Job {id} has failed. Downloads are unavailable"
 
-    file_jobs = FileJob.objects.filter(job=hmmer_job)
+    file_jobs = FileJob.objects.filter(job=hmmer_job, filters=query.dict())
 
     downloads = []
 

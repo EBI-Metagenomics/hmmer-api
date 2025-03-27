@@ -84,6 +84,7 @@ class FileJob(models.Model):
     job = models.ForeignKey(HmmerJob, related_name="+", on_delete=models.CASCADE)
     format = models.CharField(max_length=32)
     task = models.OneToOneField(TaskResult, related_name="+", null=True, blank=True, on_delete=models.CASCADE)
+    filters = models.JSONField(default=dict)
     file = models.FileField(storage=storages["downloads"], blank=True, null=True)
 
 
@@ -146,7 +147,7 @@ class FastaBuildStrategy(FileBuildStrategy):
         max_workers = 4
         chunk_size = 1000
         keys = [int(hit.name) for hit in self.result.hits if hit.is_included]
-        chunks = [keys[i : i + chunk_size] for i in range(0, len(keys), chunk_size)]
+        chunks = [keys[i: i + chunk_size] for i in range(0, len(keys), chunk_size)]
 
         all_sequences: dict[str | int, str] = {}
 
@@ -171,7 +172,7 @@ class FastaBuildStrategy(FileBuildStrategy):
                 [
                     TextSequence(
                         name=f"{hit.metadata.identifier}/{domain.ienv}-{domain.jenv}".encode(),
-                        sequence=all_sequences[int(hit.name)][domain.ienv - 1 : domain.jenv],
+                        sequence=all_sequences[int(hit.name)][domain.ienv - 1: domain.jenv],
                     )
                     for hit in self.result.hits
                     for domain in hit.domains
@@ -217,7 +218,7 @@ class MSABuildStrategy(FileBuildStrategy):
         max_workers = 4
         chunk_size = 1000
         keys = [int(hit.name) for hit in self.result.hits if hit.is_included]
-        chunks = [keys[i : i + chunk_size] for i in range(0, len(keys), chunk_size)]
+        chunks = [keys[i: i + chunk_size] for i in range(0, len(keys), chunk_size)]
 
         all_sequences: dict[str | int, str] = {}
 
@@ -234,7 +235,7 @@ class MSABuildStrategy(FileBuildStrategy):
             [
                 TextSequence(
                     name=f"{hit.metadata.identifier}/{domain.ienv}-{domain.jenv}".encode(),
-                    sequence=all_sequences[int(hit.name)][domain.ienv - 1 : domain.jenv],
+                    sequence=all_sequences[int(hit.name)][domain.ienv - 1: domain.jenv],
                 ).digitize(Alphabet.amino())
                 for hit in self.result.hits
                 for domain in hit.domains
