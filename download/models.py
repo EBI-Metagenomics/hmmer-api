@@ -42,7 +42,7 @@ formats = {
         "gzip": True,
     },
     "afa": {
-        "name": "Alligned FASTA",
+        "name": "Aligned FASTA",
         "description": "A gzipped file containing aligned significant search hits in FASTA format.",
         "extension": "afa",
         "gzip": True,
