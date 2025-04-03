@@ -4,6 +4,7 @@ import math
 
 from celery.states import SUCCESS, PENDING
 from django.conf import settings
+from django.shortcuts import get_object_or_404
 from ninja import Router, Schema, Query, Field
 from typing import List, Optional
 
@@ -40,7 +41,7 @@ class AlignmentResponseSchema(Schema):
 
 @router.get("/{uuid:id}", response=ResultResponseSchema, tags=["result"])
 def get_result(request, id: str, query: Query[ResultQuerySchema]):
-    job = HmmerJob.objects.get(id=id)
+    job = get_object_or_404(HmmerJob, id=id)
 
     try:
         status = job.task.status
@@ -63,7 +64,7 @@ def get_result(request, id: str, query: Query[ResultQuerySchema]):
         taxonomy_ids=query.taxonomy_ids,
         with_domains=query.with_domains or job.algo == HmmerJob.AlgoChoices.HMMSCAN,
         architecture=query.architecture,
-        algo=job.algo
+        algo=job.algo,
     )
 
     if job.algo == HmmerJob.AlgoChoices.HMMSCAN:
