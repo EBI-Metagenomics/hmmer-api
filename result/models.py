@@ -761,7 +761,10 @@ def post_process_pfam(result: Result):
                 continue
 
             if flat_domain["domain"].overlaps(other_flat_domain["domain"], "ali"):
-                if other_flat_domain["hit"].metadata.identifier in flat_domain["hit"].metadata.nested:
+                if (
+                    flat_domain["hit"].metadata.nested is not None
+                    and other_flat_domain["hit"].metadata.identifier in flat_domain["hit"].metadata.nested
+                ):
                     continue
 
                 if (
@@ -781,7 +784,10 @@ def post_process_pfam(result: Result):
                 continue
 
             if flat_domain["domain"].overlaps(other_flat_domain["domain"], "ali"):
-                if other_flat_domain["hit"].metadata.identifier not in flat_domain["hit"].metadata.nested:
+                if (
+                    flat_domain["hit"].metadata.nested is None
+                    or other_flat_domain["hit"].metadata.identifier not in flat_domain["hit"].metadata.nested
+                ):
                     continue
 
                 if flat_domain["domain"].segments is None:
