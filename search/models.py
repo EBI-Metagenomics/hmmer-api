@@ -1,5 +1,6 @@
 import uuid
 import io
+import datetime
 from django.conf import settings
 from django.db import models
 from django_celery_results.models import TaskResult
@@ -159,3 +160,15 @@ class HmmerJob(models.Model):
             self.mx = None
             self.popen = None
             self.pextend = None
+
+
+class Database(models.Model):
+    class TypeChoices(models.TextChoices):
+        SEQ = "seq"
+        HMM = "hmm"
+
+    id = models.CharField(max_length=32, primary_key=True, unique=True)
+    type = models.CharField(max_length=16, choices=TypeChoices.choices, default=TypeChoices.SEQ)
+    name = models.CharField(max_length=32)
+    version = models.CharField(max_length=32)
+    release_date = models.DateField(default=datetime.date.today())

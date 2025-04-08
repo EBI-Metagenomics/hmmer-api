@@ -15,11 +15,22 @@ from typing import List
 from architecture.tasks import build_architecture, build_annotation
 from taxonomy.tasks import build_taxonomy_tree, build_taxonomy_distribution_graph
 from .tasks import run_search
-from .models import HmmerJob
+from .models import HmmerJob, Database
 
 logger = logging.getLogger(__name__)
 
 router = Router()
+
+
+class DatabaseResponseSchema(ModelSchema):
+    class Meta:
+        model = Database
+        fields = "__all__"
+
+
+@router.get("/databases", response=List[DatabaseResponseSchema], tags=["search"])
+def get_databases(request):
+    return Database.objects.all()
 
 
 class SearchRequestSchema(ModelSchema):
@@ -73,20 +84,6 @@ class SearchResponseSchema(Schema):
     id: UUID4
 
 
-class TaskResultSchema(ModelSchema):
-    class Meta:
-        model = TaskResult
-        fields = ["status", "date_created", "date_done"]
-
-
-class JobsResponseSchema(ModelSchema):
-    task: TaskResultSchema
-
-    class Meta:
-        model = HmmerJob
-        fields = ["id", "algo"]
-
-
 @router.post("{algo}", response=SearchResponseSchema, tags=["search"])
 def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequestSchema):
     job = HmmerJob(algo=algo, **body.dict())
@@ -113,6 +110,20 @@ def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequest
     transaction.on_commit(lambda: chain(*tasks).delay())
 
     return {"id": job.id}
+
+
+class TaskResultSchema(ModelSchema):
+    class Meta:
+        model = TaskResult
+        fields = ["status", "date_created", "date_done"]
+
+
+class JobsResponseSchema(ModelSchema):
+    task: TaskResultSchema
+
+    class Meta:
+        model = HmmerJob
+        fields = ["id", "algo"]
 
 
 @router.get("", response=List[JobsResponseSchema], tags=["search"])

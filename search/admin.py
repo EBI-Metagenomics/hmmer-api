@@ -1,7 +1,6 @@
-# from django.contrib import admin
-# from unfold.admin import ModelAdmin
-# from .models.job import HmmerJob
-# from django.utils.html import format_html
+from django.contrib import admin
+from unfold.admin import ModelAdmin
+from .models import Database
 # import json
 
 
@@ -44,3 +43,7 @@
 
 #     def get_readonly_fields(self, request, obj=None):
 #         return self.fields  # Makes all displayed fields read-only
+
+@admin.register(Database)
+class DatabaseAdmin(ModelAdmin):
+    pass
