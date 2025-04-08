@@ -4,7 +4,7 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db import transaction
 from architecture.models import Architecture
 
-ARCHITECTURE_REQUIRED_COLUMNS = {"sequence_index", "database", "accessions", "names", "score", "graphics"}
+ARCHITECTURE_REQUIRED_COLUMNS = {"sequence_index", "accessions", "names", "score", "graphics"}
 
 csv.field_size_limit(sys.maxsize)
 
@@ -36,6 +36,7 @@ class Command(BaseCommand):
                 self.stdout.write("Loading architecture records...")
 
                 for row in reader:
+                    row["database"] = row["database"] if "database" in row else "uniprot"
                     Architecture.objects.create(**row)
 
             self.stdout.write(self.style.SUCCESS("Architecture records loaded successfully!"))
