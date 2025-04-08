@@ -29,7 +29,7 @@ def build_architecture(self, job_id: str):
 
     result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config)
 
-    architectures = Architecture.from_results(result, db_config.name)
+    architectures = Architecture.from_results(result, db_config.architecture_database)
 
     storage = storages["results"]
     name = storage.save(f"{job.id}/architecture.json", ContentFile(""))

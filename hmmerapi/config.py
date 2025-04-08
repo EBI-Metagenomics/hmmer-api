@@ -32,6 +32,7 @@ class DatabaseSettings(BaseSettings):
     external_link_template: Optional[str] = "https://www.uniprot.org/uniprotkb/{}/entry"
     taxonomy_link_template: Optional[str] = "https://www.uniprot.org/taxonomy/{}"
     structure_link_template: Optional[str] = "https://alphafold.ebi.ac.uk/entry/{}"
+    architecture_database: Optional[str] = ""
 
 
 class HmmerSettings(BaseSettings):
