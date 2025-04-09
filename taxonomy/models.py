@@ -172,6 +172,8 @@ class TaxonomyDistributionGraph(BaseModel):
         if "other entries" in superkingdoms_map:
             taxonomy_id_lookup[superkingdoms_map["other entries"]] = superkingdoms_map["other sequences"]
 
+        taxonomy_id_lookup[None] = superkingdoms_map["unclassified sequences"]
+
         values = [-math.log(hit.evalue) if hit.evalue > 0 else 1000 for hit in result.hits if hit.is_included]
         superkingdoms = [taxonomy_id_lookup[hit.metadata.lineage[0]] for hit in result.hits if hit.is_included]
 
