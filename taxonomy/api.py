@@ -27,7 +27,7 @@ class TaxonomyTreeResponseSchema(Schema):
 class TaxonomyResponseSchema(ModelSchema):
     class Meta:
         model = Taxonomy
-        fields = ["taxonomy_id", "name", "rank"]
+        fields = ["id", "name", "rank"]
 
 
 @router.get("", tags=["taxonomy"])
@@ -46,7 +46,7 @@ def search_taxonomy(request, q: str):
     queryset = Taxonomy.objects.filter(rank="species")
 
     if numerical_query is not None:
-        return queryset.filter(taxonomy_id=numerical_query)
+        return queryset.filter(id=numerical_query)
 
     words = q.split()
     search_query = SearchQuery(f"{words[0]}:*", search_type="raw")

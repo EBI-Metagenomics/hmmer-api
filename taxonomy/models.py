@@ -3,9 +3,8 @@ import math
 import numpy as np
 from typing import List, Optional
 from django.db import models
-from django.core import serializers
 from django.contrib.postgres.search import SearchVector, SearchVectorField
-from treebeard.mp_tree import MP_Node, get_result_class
+from treebeard.al_tree import AL_Node
 from pydantic import BaseModel
 from result.models import Result, P7Hit
 
@@ -17,57 +16,23 @@ def format_evalue(value: float):
         return f"{value:.6g}"
 
 
-class Taxonomy(MP_Node):
-    taxonomy_id = models.IntegerField(unique=True)
+class Taxonomy(AL_Node):
+    id = models.PositiveIntegerField(unique=True, primary_key=True)
+    parent = models.ForeignKey("self", related_name="children_set", on_delete=models.CASCADE, null=True, db_index=True)
     name = models.CharField(max_length=255)
     rank = models.CharField(max_length=255)
     search = models.GeneratedField(
         db_persist=True, expression=SearchVector("name", config="simple"), output_field=SearchVectorField()
     )
 
-    class Meta:
-        indexes = [models.Index(fields=["taxonomy_id"])]
-
     @classmethod
     def dump(cls):
-        """Dumps a tree branch to a python data structure."""
-
-        cls = get_result_class(cls)
-
-        qset = cls._get_serializable_model().objects.filter(range__isnull=False).distinct().order_by("depth", "path")
-        ret, lnk = [], {}
-
-        pk_field = cls._meta.pk.attname
-        for pyobj in serializers.serialize("python", qset):
-
-            fields = pyobj["fields"]
-            path = fields["path"]
-            depth = int(len(path) / cls.steplen)
-
-            del fields["depth"]
-            del fields["path"]
-            del fields["numchild"]
-
-            if pk_field in fields:
-                del fields[pk_field]
-
-            newobj = fields
-
-            if depth == 1:
-                ret.append(newobj)
-            else:
-                parentpath = cls._get_basepath(path, depth - 1)
-                parentobj = lnk[parentpath]
-                if "children" not in parentobj:
-                    parentobj["children"] = []
-                parentobj["children"].append(newobj)
-            lnk[path] = newobj
-        return ret
+        return []
 
 
 class Range(models.Model):
     database = models.CharField(max_length=32)
-    taxonomy = models.ForeignKey(Taxonomy, to_field="taxonomy_id", on_delete=models.SET_NULL, null=True, blank=True)
+    taxonomy = models.ForeignKey(Taxonomy, on_delete=models.SET_NULL, null=True, blank=True)
     start = models.IntegerField(null=True, blank=True)
     end = models.IntegerField(null=True, blank=True)
 
@@ -117,7 +82,7 @@ class TaxonomyTree(BaseModel):
 
             histogram, _ = np.histogram([-math.log(hit.evalue) for hit in hits], bins=30)
             id = hits[0].metadata.lineage[depth]
-            taxonomy = Taxonomy.objects.get(taxonomy_id=id)
+            taxonomy = Taxonomy.objects.get(id=id)
             sorted_hits = sorted(hits, key=lambda hit: hit.metadata.lineage[depth + 1] or np.inf)
             grouped_hits = itertools.groupby(sorted_hits, key=lambda hit: hit.metadata.lineage[depth + 1] or np.inf)
             children = filter(
@@ -133,7 +98,7 @@ class TaxonomyTree(BaseModel):
 
             histogram, _ = np.histogram([-math.log(hit.evalue) for hit in hits], bins=30)
             id = hits[0].metadata.lineage[depth]
-            taxonomy = Taxonomy.objects.get(taxonomy_id=id)
+            taxonomy = Taxonomy.objects.get(id=id)
 
             return TaxonomyTree(
                 id=id, name=taxonomy.name, hitdist=histogram.tolist(), hitcount=len(hits), children=None
@@ -160,8 +125,8 @@ class TaxonomyDistributionGraph(BaseModel):
         }
 
         superkingdoms_map = {
-            name.lower(): taxonomy_id
-            for name, taxonomy_id in Taxonomy.objects.filter(rank="superkingdom").values_list("name", "taxonomy_id")
+            name.lower(): id
+            for name, id in Taxonomy.objects.filter(rank="superkingdom").values_list("name", "taxonomy_id")
         }
 
         taxonomy_id_lookup = {taxonomy_id: taxonomy_id for taxonomy_id in superkingdoms_map.values()}
