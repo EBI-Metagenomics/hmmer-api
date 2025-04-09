@@ -1,7 +1,7 @@
 import logging
 import io
 
-from celery import chain
+from celery import chain, group
 from django_celery_results.models import TaskResult
 from django.http import HttpRequest
 from django.db import transaction
@@ -93,21 +93,26 @@ def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequest
 
     request.session["job_ids"] = request.session.get("job_ids", []) + [str(job.id)]
 
-    tasks = [run_search.si(job.id)]
+    subsequent_tasks = []
 
     if job.algo != HmmerJob.AlgoChoices.HMMSCAN and job.with_taxonomy:
-        tasks += [
+        subsequent_tasks += [
             build_taxonomy_tree.si(job.id),
             build_taxonomy_distribution_graph.si(job.id),
         ]
 
     if job.algo != HmmerJob.AlgoChoices.HMMSCAN and job.with_architecture:
-        tasks += [build_architecture.si(job.id)]
+        subsequent_tasks += [build_architecture.si(job.id)]
 
     if job.algo != HmmerJob.AlgoChoices.HMMSEARCH:
-        tasks += [build_annotation.si(job.id)]
+        subsequent_tasks += [build_annotation.si(job.id)]
 
-    transaction.on_commit(lambda: chain(*tasks).delay())
+    workflow = chain(
+        run_search.si(job.id),
+        group(*subsequent_tasks),
+    )
+
+    transaction.on_commit(lambda: workflow.delay())
 
     return {"id": job.id}
 
