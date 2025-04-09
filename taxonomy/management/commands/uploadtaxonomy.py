@@ -1,89 +1,59 @@
 import csv
-from django.core.management.base import BaseCommand, CommandError
-from django.db import transaction
-from taxonomy.models import Taxonomy, Range
-
-TAXONOMY_REQUIRED_COLUMNS = {"taxonomy_id", "parent_id", "name", "rank"}
-RANGE_REQUIRED_COLUMNS = {"taxonomy_id", "database", "start", "end"}
+import os
+from io import StringIO
+from collections import defaultdict
+from django.core.management.base import BaseCommand
+from django.db import connection
 
 
 class Command(BaseCommand):
-    help = "Uploads the taxonomy from a CSV file"
+    help = "Uploads the taxonomy from NCBI's taxdump"
 
     def add_arguments(self, parser):
-        parser.add_argument("taxonomy_file", type=str, help="the CSV file containing the taxonomy")
-        parser.add_argument("range_file", nargs="*", type=str, help="the CSV file containing the database ranges")
+        parser.add_argument(
+            "taxdump", type=str, help="path to the taxdump directory (containing nodes.dmp and names.dmp)"
+        )
 
-        parser.add_argument("--replace", action="store_true", help="replace existing records (applies to ranges only)")
+        parser.add_argument("--table", type=str, default="taxonomy_taxonomy", help="name of the taxonomy table")
 
     def handle(self, *args, **options):
-        taxonomy_file = options["taxonomy_file"]
-        range_files = options["range_file"]
+        nodes_path = os.path.join(options["taxdump"], "nodes.dmp")
+        names_path = os.path.join(options["taxdump"], "names.dmp")
 
-        with open(taxonomy_file, newline="") as csvfile:
-            reader = csv.DictReader(csvfile)
-            header_set = set(reader.fieldnames)
+        names = defaultdict(list)
 
-            if not TAXONOMY_REQUIRED_COLUMNS.issubset(header_set):
-                missing = TAXONOMY_REQUIRED_COLUMNS - header_set
-                raise CommandError(f"CSV file {taxonomy_file} is missing required columns: {', '.join(missing)}")
+        with open(names_path) as names_fh:
+            self.stdout.write(f"Reading names from {names_path}")
 
-            rows = list(reader)
+            for line in names_fh:
+                id, name, _, type, *_ = map(str.strip, line.split("|"))
 
-            self.stdout.write(f"Read {len(rows)} rows from {taxonomy_file}")
-            nodes = {}
+                if type == "scientific name":
+                    names[id].append(name)
 
-            for row in rows:
-                taxonomy_id = int(row["taxonomy_id"])
-                nodes[taxonomy_id] = {
-                    "data": {"taxonomy_id": taxonomy_id, "name": row["name"], "rank": row["rank"]},
-                    "children": [],
-                }
+            self.stdout.write(f"Read {len(names.keys())} names from {names_path}")
 
-            for row in rows:
-                taxonomy_id = int(row["taxonomy_id"])
-                parent_id = int(row["parent_id"])
+        with StringIO(newline="") as csv_fh:
+            with open(nodes_path) as nodes_fh:
+                rows_counter = 0
+                writer = csv.writer(csv_fh, delimiter="|")
 
-                if taxonomy_id != parent_id and parent_id in nodes:
-                    nodes[parent_id]["children"].append(nodes[taxonomy_id])
+                self.stdout.write(f"Reading rows from {nodes_path}")
 
-            root = nodes[1]
+                for line in nodes_fh:
+                    id, parent, rank, *_ = map(str.strip, line.split("|"))
+                    writer.writerow([id, rank, names[id][0] if names[id] else "\\N", parent if id != "1" else "\\N"])
+                    rows_counter += 1
 
-            with transaction.atomic():
-                self.stdout.write("Deleting existing taxonomy records...")
-                Taxonomy.objects.all().delete()
+                self.stdout.write(f"Read {rows_counter} rows from {nodes_path}")
 
-                self.stdout.write("Loading taxonomy records...")
-                Taxonomy.load_bulk([root])
+            csv_fh.seek(0)
 
-            self.stdout.write(self.style.SUCCESS("Taxonomy records loaded successfully!"))
+            with connection.cursor() as cursor:
+                self.stdout.write(f"Truncating table {self.style.SQL_TABLE(options["table"])}")
+                cursor.execute(f"TRUNCATE {options["table"]} CASCADE;")
 
-        if not range_files:
-            self.stdout.write("No range files provided, skipping range records...")
-            return
+                self.stdout.write(f"Inserting rows into {self.style.SQL_TABLE(options["table"])}")
+                cursor.copy_from(csv_fh, options["table"], sep="|", columns=("id", "rank", "name", "parent_id"))
 
-        ranges = []
-
-        for range_file in range_files:
-            with open(range_file, newline="") as csvfile:
-                reader = csv.DictReader(csvfile)
-                header_set = set(reader.fieldnames)
-
-                if not RANGE_REQUIRED_COLUMNS.issubset(header_set):
-                    missing = RANGE_REQUIRED_COLUMNS - header_set
-                    raise CommandError(f"CSV file {range_file} is missing required columns: {', '.join(missing)}")
-
-                range_objects = [Range(**row) for row in reader if row["start"] and row["end"]]
-                ranges.extend(range_objects)
-
-            self.stdout.write(f"Read {len(range_objects)} rows from {range_file}")
-
-        with transaction.atomic():
-            if options["replace"]:
-                self.stdout.write(self.style.WARNING("Deleting existing range records..."))
-                Range.objects.all().delete()
-
-            self.stdout.write("Loading range records...")
-            Range.objects.bulk_create(ranges)
-
-        self.stdout.write(self.style.SUCCESS("Range records loaded successfully!"))
+            self.stdout.write(self.style.SUCCESS("Taxonomy loaded successfully!"))
