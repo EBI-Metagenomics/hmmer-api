@@ -62,7 +62,7 @@ def get_taxonomy(
     request,
     id: int,
 ):
-    return get_object_or_404(Taxonomy, taxonomy_id=id)
+    return get_object_or_404(Taxonomy, id=id)
 
 
 @router.get("/{uuid:id}/tree", response=TaxonomyTreeResponseSchema, tags=["taxonomy"])

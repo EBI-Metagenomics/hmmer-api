@@ -25,6 +25,8 @@ class Taxonomy(AL_Node):
         db_persist=True, expression=SearchVector("name", config="simple"), output_field=SearchVectorField()
     )
 
+    node_order_by = ["id"]
+
     @classmethod
     def dump(cls):
         return []
@@ -124,9 +126,22 @@ class TaxonomyDistributionGraph(BaseModel):
             "other sequences": "#373a36",
         }
 
+        # TODO fix taxonomy according to ncbi
+        # 2,Bacteria
+        # 2157,Archaea
+        # 2759,Eukaryota
+        # 10239,Viruses
+        # 12908,unclassified sequences
+        # 28384,other sequences
+        # 131567,cellular organisms
+        # 2787823,unclassified entries
+        # 2787854,other entries
+
         superkingdoms_map = {
             name.lower(): id
-            for name, id in Taxonomy.objects.filter(rank="superkingdom").values_list("name", "taxonomy_id")
+            for name, id in Taxonomy.objects.filter(id__in=[2, 2157, 2759, 10239, 12908, 28384]).values_list(
+                "name", "id"
+            )
         }
 
         taxonomy_id_lookup = {taxonomy_id: taxonomy_id for taxonomy_id in superkingdoms_map.values()}
@@ -137,6 +152,8 @@ class TaxonomyDistributionGraph(BaseModel):
         if "other entries" in superkingdoms_map:
             taxonomy_id_lookup[superkingdoms_map["other entries"]] = superkingdoms_map["other sequences"]
 
+        taxonomy_id_lookup[2787823] = 12908
+        taxonomy_id_lookup[2787854] = 28384
         taxonomy_id_lookup[None] = superkingdoms_map["unclassified sequences"]
 
         values = [-math.log(hit.evalue) if hit.evalue > 0 else 1000 for hit in result.hits if hit.is_included]
