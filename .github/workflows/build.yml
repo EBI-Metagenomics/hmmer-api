@@ -33,6 +33,8 @@ jobs:
             tags: |
               quay.io/microbiome-informatics/hmmer-api:${{ env.ENVIRONMENT }}-${{ github.sha }}
               quay.io/microbiome-informatics/hmmer-api:${{ env.ENVIRONMENT  }}-latest
+            cache-from: type=gha
+            cache-to: type=gha,mode=max
 
       - name: Login to Quay.io
         uses: docker/login-action@v3
