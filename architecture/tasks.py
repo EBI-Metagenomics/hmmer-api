@@ -20,7 +20,7 @@ def build_architecture(self, job_id: str):
     job = HmmerJob.objects.get(id=job_id)
     task_result = TaskResult.objects.get(task_id=self.request.id)
     job.architecture_task = task_result
-    job.save()
+    job.save(update_fields=["architecture_task"])
 
     try:
         db_config = settings.HMMER.databases[job.database]
@@ -47,7 +47,7 @@ def build_annotation(self, job_id: str):
     job = HmmerJob.objects.get(id=job_id)
     task_result = TaskResult.objects.get(task_id=self.request.id)
     job.annotation_task = task_result
-    job.save()
+    job.save(update_fields=["annotation_task"])
 
     try:
         db_config = settings.HMMER.databases[settings.HMMER.annotation_db]

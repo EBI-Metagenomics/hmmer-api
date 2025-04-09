@@ -20,7 +20,7 @@ def build_taxonomy_tree(self, job_id: str):
     job = HmmerJob.objects.get(id=job_id)
     task_result = TaskResult.objects.get(task_id=self.request.id)
     job.taxonomy_tree_task = task_result
-    job.save()
+    job.save(update_fields=["taxonomy_tree_task"])
 
     try:
         db_config = settings.HMMER.databases[job.database]
@@ -47,7 +47,7 @@ def build_taxonomy_distribution_graph(self, job_id: str):
     job = HmmerJob.objects.get(id=job_id)
     task_result = TaskResult.objects.get(task_id=self.request.id)
     job.taxonomy_distribution_graph_task = task_result
-    job.save()
+    job.save(update_fields=["taxonomy_distribution_graph_task"])
 
     try:
         db_config = settings.HMMER.databases[job.database]

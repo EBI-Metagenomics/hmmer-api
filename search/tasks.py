@@ -18,7 +18,7 @@ def run_search(self, job_id: str):
     job = HmmerJob.objects.get(id=job_id)
     task_result = TaskResult.objects.get(task_id=self.request.id)
     job.task = task_result
-    job.save()
+    job.save(update_fields=["task"])
 
     try:
         db_config = settings.HMMER.databases[job.database]
