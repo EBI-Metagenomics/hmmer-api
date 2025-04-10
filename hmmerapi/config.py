@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import List, Dict, Optional
+from typing import List, Dict, Optional, Any
 from pydantic import ImportString
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -48,5 +48,5 @@ class HmmerSettings(BaseSettings):
 
 class CelerySettings(BaseSettings):
     broker_url: str = ""
-
+    task_routes: Optional[Dict[str, Any]] = None
     model_config = SettingsConfigDict(env_prefix="CELERY_")
