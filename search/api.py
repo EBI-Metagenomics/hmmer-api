@@ -3,9 +3,10 @@ import io
 
 from celery import chain, group
 from django_celery_results.models import TaskResult
-from django.http import HttpRequest
+from django.http import HttpRequest, HttpResponse
 from django.db import transaction
-from ninja import Router, ModelSchema, Schema
+from django.shortcuts import get_object_or_404
+from ninja import Router, ModelSchema, Schema, Field
 from pydantic import UUID4, ValidationInfo, field_validator
 from pydantic_core import PydanticCustomError
 from pyhmmer.easel import SequenceFile, MSAFile
@@ -22,6 +23,12 @@ logger = logging.getLogger(__name__)
 router = Router()
 
 
+class TaskResultSchema(ModelSchema):
+    class Meta:
+        model = TaskResult
+        fields = ["status", "date_created", "date_done"]
+
+
 class DatabaseResponseSchema(ModelSchema):
     class Meta:
         model = Database
@@ -33,7 +40,44 @@ def get_databases(request):
     return Database.objects.all()
 
 
+class JobDetailsResponseSchema(ModelSchema):
+    task: TaskResultSchema
+    database: DatabaseResponseSchema
+
+    class Meta:
+        model = HmmerJob
+        exclude = [
+            "taxonomy_distribution_task",
+            "taxonomy_tree_task",
+            "taxonomy_distribution_graph_task",
+            "architecture_task",
+            "annotation_task",
+            "with_taxonomy",
+            "with_architecture",
+        ]
+
+
+@router.get("/{uuid:id}", response=JobDetailsResponseSchema, tags=["search"])
+def get_job_details(request, id: str):
+    job = get_object_or_404(HmmerJob, id=id)
+
+    return job
+
+
+@router.get("/{uuid:id}/query", tags=["search"])
+def get_job_query(request, id: str):
+    job = get_object_or_404(HmmerJob, id=id)
+
+    response = HttpResponse(job.input, content_type="text/plain")
+
+    response["Content-Disposition"] = 'inline; filename="query.txt"'
+
+    return response
+
+
 class SearchRequestSchema(ModelSchema):
+    database_id: str = Field(alias="database")
+
     @field_validator("input", mode="after", check_fields=False)
     @classmethod
     def check_input(cls, value: str, info: ValidationInfo):
@@ -77,7 +121,17 @@ class SearchRequestSchema(ModelSchema):
 
     class Meta:
         model = HmmerJob
-        exclude = ["id", "task", "taxonomy_distribution_task", "taxonomy_tree_task", "algo"]
+        exclude = [
+            "id",
+            "database",
+            "task",
+            "taxonomy_distribution_task",
+            "taxonomy_tree_task",
+            "taxonomy_distribution_graph_task",
+            "architecture_task",
+            "annotation_task",
+            "algo",
+        ]
 
 
 class SearchResponseSchema(Schema):
@@ -86,7 +140,7 @@ class SearchResponseSchema(Schema):
 
 @router.post("{algo}", response=SearchResponseSchema, tags=["search"])
 def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequestSchema):
-    job = HmmerJob(algo=algo, **body.dict())
+    job = HmmerJob(**body.dict(), algo=algo)
 
     job.clean()
     job.save()
@@ -115,12 +169,6 @@ def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequest
     transaction.on_commit(lambda: workflow.delay())
 
     return {"id": job.id}
-
-
-class TaskResultSchema(ModelSchema):
-    class Meta:
-        model = TaskResult
-        fields = ["status", "date_created", "date_done"]
 
 
 class JobsResponseSchema(ModelSchema):

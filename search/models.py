@@ -47,7 +47,7 @@ class HmmerJob(models.Model):
     )
 
     algo = models.CharField(max_length=16, choices=AlgoChoices.choices, default=AlgoChoices.PHMMER)
-    database = models.CharField(max_length=32)
+    database = models.ForeignKey("Database", on_delete=models.SET_NULL, related_name="+", null=True, blank=True)
     input = models.TextField()
 
     threshold = models.CharField(max_length=16, choices=ThresholdChoices.choices, default=ThresholdChoices.EVALUE)
@@ -70,9 +70,9 @@ class HmmerJob(models.Model):
     @property
     def hmmpgmd_db(self) -> str:
         try:
-            db_config = settings.HMMER.databases[self.database]
+            db_config = settings.HMMER.databases[self.database.id]
         except KeyError:
-            raise ValueError(f"Database {self.database} not found in settings")
+            raise ValueError(f"Database {self.database.id} not found in settings")
 
         if self.algo != self.AlgoChoices.HMMSCAN:
             return f"--seqdb {db_config.db}"

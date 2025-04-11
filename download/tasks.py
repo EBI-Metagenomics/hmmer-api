@@ -23,9 +23,9 @@ def generate(self, job_id: str):
     file_job.save()
 
     try:
-        db_config = settings.HMMER.databases[file_job.job.database]
+        db_config = settings.HMMER.databases[file_job.job.database.id]
     except KeyError:
-        raise ValueError(f"Database {file_job.job.database} not found in settings")
+        raise ValueError(f"Database {file_job.job.database.id} not found in settings")
 
     result, _ = Result.from_file(
         json.loads(file_job.job.task.result),

@@ -17,15 +17,15 @@ logger = logging.getLogger(__name__)
 def build_taxonomy_tree(self, job_id: str):
     logger.debug(f"Making taxonomy tree for job {job_id}")
 
-    job = HmmerJob.objects.get(id=job_id)
+    job = HmmerJob.objects.select_related("database").get(id=job_id)
     task_result = TaskResult.objects.get(task_id=self.request.id)
     job.taxonomy_tree_task = task_result
     job.save(update_fields=["taxonomy_tree_task"])
 
     try:
-        db_config = settings.HMMER.databases[job.database]
+        db_config = settings.HMMER.databases[job.database.id]
     except KeyError:
-        raise ValueError(f"Database {job.database} not found in settings")
+        raise ValueError(f"Database {job.database.id} not found in settings")
 
     result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config)
 
@@ -44,15 +44,15 @@ def build_taxonomy_tree(self, job_id: str):
 def build_taxonomy_distribution_graph(self, job_id: str):
     logger.debug(f"Making taxonomy distribution graph for job {job_id}")
 
-    job = HmmerJob.objects.get(id=job_id)
+    job = HmmerJob.objects.select_related("database").get(id=job_id)
     task_result = TaskResult.objects.get(task_id=self.request.id)
     job.taxonomy_distribution_graph_task = task_result
     job.save(update_fields=["taxonomy_distribution_graph_task"])
 
     try:
-        db_config = settings.HMMER.databases[job.database]
+        db_config = settings.HMMER.databases[job.database.id]
     except KeyError:
-        raise ValueError(f"Database {job.database} not found in settings")
+        raise ValueError(f"Database {job.database.id} not found in settings")
 
     result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config)
 

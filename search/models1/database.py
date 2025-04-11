@@ -7,9 +7,9 @@ class SequenceDatabaseMixin(models.Model):
 
     def get_hmmpgmd_db(self):
         try:
-            db_config = settings.HMMER.databases[self.database]
+            db_config = settings.HMMER.databases[self.database.id]
         except KeyError:
-            raise ValueError(f"Database {self.database} not found in settings")
+            raise ValueError(f"Database {self.database.id} not found in settings")
 
         return f"--seqdb {db_config.db}"
 

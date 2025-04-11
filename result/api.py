@@ -52,9 +52,9 @@ def get_result(request, id: str, query: Query[ResultQuerySchema]):
         return {"status": status}
 
     try:
-        db_config = settings.HMMER.databases[job.database]
+        db_config = settings.HMMER.databases[job.database.id]
     except KeyError:
-        raise ValueError(f"Database {job.database} not found in settings")
+        raise ValueError(f"Database {job.database.id} not found in settings")
 
     result, total_count = Result.from_file(
         json.loads(job.task.result),
@@ -75,7 +75,7 @@ def get_result(request, id: str, query: Query[ResultQuerySchema]):
 
 @router.get("/{uuid:id}/domains", response=AlignmentResponseSchema, tags=["result"])
 def get_domains(request, id: str, query: Query[AlignmentQuerySchema]):
-    job = HmmerJob.objects.get(id=id)
+    job = HmmerJob.objects.select_related("database").get(id=id)
 
     try:
         status = job.task.status
@@ -86,9 +86,9 @@ def get_domains(request, id: str, query: Query[AlignmentQuerySchema]):
         return {"status": status}
 
     try:
-        db_config = settings.HMMER.databases[job.database]
+        db_config = settings.HMMER.databases[job.id]
     except KeyError:
-        raise ValueError(f"Database {job.database} not found in settings")
+        raise ValueError(f"Database {job.database.id} not found in settings")
 
     result, _ = Result.from_file(
         json.loads(job.task.result),

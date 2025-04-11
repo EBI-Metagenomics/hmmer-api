@@ -15,15 +15,15 @@ logger = logging.getLogger(__name__)
 def run_search(self, job_id: str):
     logger.debug(f"Running job {job_id}")
 
-    job = HmmerJob.objects.get(id=job_id)
+    job = HmmerJob.objects.select_related("database").get(id=job_id)
     task_result = TaskResult.objects.get(task_id=self.request.id)
     job.task = task_result
     job.save(update_fields=["task"])
 
     try:
-        db_config = settings.HMMER.databases[job.database]
+        db_config = settings.HMMER.databases[job.database.id]
     except KeyError:
-        raise ValueError(f"Database {job.database} not found in settings")
+        raise ValueError(f"Database {job.database.id} not found in settings")
 
     storage = storages["results"]
 
