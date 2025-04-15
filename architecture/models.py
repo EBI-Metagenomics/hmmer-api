@@ -7,6 +7,7 @@ from result.models import Result
 
 
 class Architecture(models.Model):
+    pk = models.CompositePrimaryKey("sequence_index", "database")
     sequence_index = models.BigIntegerField()
     database = models.CharField(max_length=32)
     accessions = models.TextField()
