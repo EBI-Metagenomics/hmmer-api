@@ -1,6 +1,7 @@
 from dataclasses import asdict
 from django.db import models
 from django.contrib.postgres.aggregates import ArrayAgg
+from django.contrib.postgres.indexes import HashIndex
 from pydantic import BaseModel, Field, model_validator
 from typing import List
 from result.models import Result
@@ -57,7 +58,7 @@ class Architecture(models.Model):
         ]
 
     class Meta:
-        indexes = [models.Index(fields=["accessions"])]
+        indexes = [HashIndex(fields=["accessions"])]
 
 
 class Region(BaseModel):
