@@ -26,20 +26,20 @@ class Command(BaseCommand):
             None,
         )
 
-        if hash_index:
-            self.stdout.write(f"Found index on column 'accession': {hash_index.name}")
-            self.stdout.flush()
-
-            with connection.schema_editor() as schema_editor:
-                self.stdout.write("Removing index on column 'accession'")
-                self.stdout.flush()
-                schema_editor.remove_index(Architecture, hash_index)
-
         with connection.cursor() as cursor, open(options["architecture_file"]) as tsv_fh:
             if options["replace"]:
                 self.stdout.write(self.style.WARNING("Deleting existing architecture records..."))
                 self.stdout.flush()
                 cursor.execute(f"TRUNCATE {options["table"]} CASCADE;")
+
+            if hash_index:
+                self.stdout.write(f"Found index on column 'accession': {hash_index.name}")
+                self.stdout.flush()
+
+                with connection.schema_editor() as schema_editor:
+                    self.stdout.write("Removing index on column 'accession'")
+                    self.stdout.flush()
+                    schema_editor.remove_index(Architecture, hash_index)
 
             self.stdout.write(f"Inserting rows into {self.style.SQL_TABLE(options["table"])}")
             self.stdout.flush()
@@ -63,8 +63,9 @@ class Command(BaseCommand):
 
             self.stdout.write(self.style.SUCCESS("Architecture loaded successfully!"))
             self.stdout.flush()
-        if hash_index:
-            with connection.schema_editor() as schema_editor:
-                self.stdout.write("Adding index on column 'accession'")
-                self.stdout.flush()
-                schema_editor.add_index(Architecture, hash_index)
+
+            if hash_index:
+                with connection.schema_editor() as schema_editor:
+                    self.stdout.write("Adding index on column 'accession'")
+                    self.stdout.flush()
+                    schema_editor.add_index(Architecture, hash_index)
