@@ -171,4 +171,4 @@ class Database(models.Model):
     type = models.CharField(max_length=16, choices=TypeChoices.choices, default=TypeChoices.SEQ)
     name = models.CharField(max_length=32)
     version = models.CharField(max_length=32)
-    release_date = models.DateField(default=datetime.date.today())
+    release_date = models.DateField(default=datetime.date.today)
