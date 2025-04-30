@@ -1,7 +1,7 @@
 from dataclasses import asdict
 from django.db import models
 from django.contrib.postgres.aggregates import ArrayAgg
-from django.contrib.postgres.indexes import HashIndex
+from django.db.models.functions import MD5
 from pydantic import BaseModel, Field, model_validator
 from typing import List
 from result.models import Result
@@ -26,7 +26,6 @@ class Architecture(models.Model):
         grouped = (
             Architecture.objects.filter(sequence_index__in=sequence_indexes)
             .filter(database=database)
-            .order_by("accessions")
             .values("accessions", "names")
             .annotate(
                 sequence_index_list=ArrayAgg("sequence_index"),
@@ -58,7 +57,10 @@ class Architecture(models.Model):
         ]
 
     class Meta:
-        indexes = [HashIndex(fields=["accessions"])]
+        indexes = [
+            models.Index(fields=["sequence_index", "database"]),
+            models.Index(MD5("accessions"), name="idx_accessions_md5"),
+        ]
 
 
 class Region(BaseModel):

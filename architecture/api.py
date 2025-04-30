@@ -1,6 +1,8 @@
 import json
 import logging
+from hashlib import md5
 
+from django.db.models.functions import MD5
 from celery.states import SUCCESS, PENDING
 from ninja import Router, ModelSchema, Schema, Field
 from typing import List, Optional
@@ -44,7 +46,11 @@ class ArchitectureAnnotationsResponseSchema(Schema):
 
 @router.get("/name/{accessions}", response=ArchitectureSchema, tags=["architecture"])
 def get_architecture_name(request, accessions: str):
-    architecture = Architecture.objects.filter(accessions=accessions).first()
+    accessions_md5 = md5(accessions.encode()).hexdigest()
+
+    architecture = (
+        Architecture.objects.annotate(accessions_md5=MD5("accessions")).filter(accessions_md5=accessions_md5).first()
+    )
     return architecture
 
 
@@ -94,10 +100,7 @@ def get_annotations(request, id: str):
         return {"status": annotations_status}
 
     with open(json.loads(job.annotation_task.result), "rt") as fh:
-        return {
-            "status": SUCCESS,
-            "annotations": [json.load(fh)]
-        }
+        return {"status": SUCCESS, "annotations": [json.load(fh)]}
 
 
 @router.get("/{uuid:id}/{name}", response=ArchitectureListResponseSchema, tags=["architecture"])
