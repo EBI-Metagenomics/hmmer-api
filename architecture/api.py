@@ -32,8 +32,8 @@ class ArchitectureAggregationSchema(Schema):
 
 class ArchitectureResponseSchema(Schema):
     status: str
-    architectures: Optional[List[ArchitectureAggregationSchema]]
-    page_count: Optional[int]
+    architectures: Optional[List[ArchitectureAggregationSchema]] = Field(default=None)
+    page_count: Optional[int] = Field(default=None)
 
 
 class ArchitectureListResponseSchema(Schema):
