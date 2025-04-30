@@ -1,10 +1,11 @@
 import json
 import logging
+import math
 from hashlib import md5
 
 from django.db.models.functions import MD5
 from celery.states import SUCCESS, PENDING
-from ninja import Router, ModelSchema, Schema, Field
+from ninja import Router, ModelSchema, Schema, Field, Query
 from typing import List, Optional
 
 from search.models import HmmerJob
@@ -32,6 +33,7 @@ class ArchitectureAggregationSchema(Schema):
 class ArchitectureResponseSchema(Schema):
     status: str
     architectures: Optional[List[ArchitectureAggregationSchema]]
+    page_count: Optional[int]
 
 
 class ArchitectureListResponseSchema(Schema):
@@ -42,6 +44,11 @@ class ArchitectureListResponseSchema(Schema):
 class ArchitectureAnnotationsResponseSchema(Schema):
     status: str
     annotations: Optional[List[Annotation]] = Field(default=None)
+
+
+class ArchitectureQuerySchema(Schema):
+    page: int = Field(default=1, gt=0)
+    page_size: int = Field(default=50, gt=0)
 
 
 @router.get("/name/{accessions}", response=ArchitectureSchema, tags=["architecture"])
@@ -55,7 +62,7 @@ def get_architecture_name(request, accessions: str):
 
 
 @router.get("/{uuid:id}", response=ArchitectureResponseSchema, tags=["architecture"])
-def get_domain_architectures(request, id: str):
+def get_domain_architectures(request, id: str, query: Query[ArchitectureQuerySchema]):
     job = HmmerJob.objects.get(id=id)
 
     try:
@@ -72,13 +79,24 @@ def get_domain_architectures(request, id: str):
         return {"status": architecture_status}
 
     with open(json.loads(job.architecture_task.result), "rt") as fh:
+        architectures = sorted(
+            [{"count": len(architectures), "architecture": architectures[0]} for architectures in json.load(fh)],
+            key=lambda x: x["count"],
+            reverse=True,
+        )
+
+        architectures_count = len(architectures)
+
+        start = (query.page - 1) * query.page_size
+        end = query.page * query.page_size
+
+        if end > architectures_count:
+            end = architectures_count
+
         return {
             "status": SUCCESS,
-            "architectures": sorted(
-                [{"count": len(architectures), "architecture": architectures[0]} for architectures in json.load(fh)],
-                key=lambda x: x["count"],
-                reverse=True,
-            ),
+            "architectures": architectures[start:end],
+            "page_count": math.ceil(architectures_count / query.page_size),
         }
 
 
