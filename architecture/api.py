@@ -4,11 +4,13 @@ import math
 from hashlib import md5
 
 from django.db.models.functions import MD5
+from django.conf import settings
 from celery.states import SUCCESS, PENDING
 from ninja import Router, ModelSchema, Schema, Field, Query
 from typing import List, Optional
 
 from search.models import HmmerJob
+from result.models import Result
 from .models import Architecture, Annotation
 
 logger = logging.getLogger(__name__)
@@ -79,11 +81,7 @@ def get_domain_architectures(request, id: str, query: Query[ArchitectureQuerySch
         return {"status": architecture_status}
 
     with open(json.loads(job.architecture_task.result), "rt") as fh:
-        architectures = sorted(
-            [{"count": len(architectures), "architecture": architectures[0]} for architectures in json.load(fh)],
-            key=lambda x: x["count"],
-            reverse=True,
-        )
+        architectures = json.load(fh)
 
         architectures_count = len(architectures)
 
@@ -121,8 +119,8 @@ def get_annotations(request, id: str):
         return {"status": SUCCESS, "annotations": [json.load(fh)]}
 
 
-@router.get("/{uuid:id}/{name}", response=ArchitectureListResponseSchema, tags=["architecture"])
-def get_all_architectures(request, id: str, name: str):
+@router.get("/{uuid:id}/{accessions}", response=ArchitectureListResponseSchema, tags=["architecture"])
+def get_all_architectures(request, id: str, accessions: str):
     job = HmmerJob.objects.get(id=id)
 
     try:
@@ -138,9 +136,16 @@ def get_all_architectures(request, id: str, name: str):
     if search_status != SUCCESS or architecture_status != SUCCESS:
         return {"status": architecture_status}
 
-    with open(json.loads(job.architecture_task.result), "rt") as fh:
-        all_architectures = json.load(fh)
+    try:
+        db_config = settings.HMMER.databases[job.database.id]
+    except KeyError:
+        raise ValueError(f"Database {job.database.id} not found in settings")
 
-        [architectures] = [architectures for architectures in all_architectures if architectures[0]["names"] == name]
+    result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config, architecture=accessions)
+    sequence_indexes = [int(hit.name) for hit in result.hits]
 
-        return {"status": SUCCESS, "architectures": architectures}
+    architectures = Architecture.objects.filter(sequence_index__in=sequence_indexes, database=job.database.id).order_by(
+        "-score"
+    )
+
+    return {"status": SUCCESS, "architectures": architectures}

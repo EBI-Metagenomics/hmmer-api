@@ -28,7 +28,6 @@ def build_architecture(self, job_id: str):
         raise ValueError(f"Database {job.database.id} not found in settings")
 
     result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config)
-
     architectures = Architecture.from_results(result, db_config.architecture_database)
 
     storage = storages["results"]
