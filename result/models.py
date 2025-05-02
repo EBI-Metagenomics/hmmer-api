@@ -465,6 +465,11 @@ class P7Domain(HmmpgmdModel):
         return False
 
 
+architecture_hash_regex = re.compile(r"^([a-fA-F0-9]{32})(?=;)")
+architecture_score_regex = re.compile(r"^[^;]+;([0-9]+);")
+metadata_regex = re.compile(r"(?:^[^;]*;[^;]*;)?({.*})")
+
+
 @dataclass
 class P7Hit(HmmpgmdModel):
     index: int = csfield(Computed(lambda ctx: ctx._params.start + ctx._index))
@@ -531,12 +536,35 @@ class P7Hit(HmmpgmdModel):
     """Description of the hit"""
     evalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._.stats.Z))
     """E-value of the hit"""
+    architecture_md5: Optional[str] = csfield(
+        Computed(
+            lambda ctx: (
+                architecture_hash_regex.match(ctx.desc).group(1) if architecture_hash_regex.match(ctx.desc) else None
+            )
+        )
+    )
+    """MD5 hash of the precalculated domain architecture"""
+    architecture_score: Optional[int] = csfield(
+        Computed(
+            lambda ctx: (
+                int(architecture_score_regex.match(ctx.desc).group(1))
+                if architecture_score_regex.match(ctx.desc)
+                else None
+            )
+        )
+    )
+    """Score of the precalculated domain architecture"""
     metadata: Optional[Dict[str, Any]] = csfield(
         If(
             lambda ctx: ctx._params.get("with_metadata", True) and ctx._params.db_conf.metadata_model_class is not None,
             Computed(
-                lambda ctx: ctx._params.db_conf.metadata_model_class.model_validate_json(
-                    ctx.desc, context={"db_conf": ctx._params.db_conf}
+                lambda ctx: (
+                    ctx._params.db_conf.metadata_model_class.model_validate_json(
+                        metadata_regex.match(ctx.desc).group(1),
+                        context={"db_conf": ctx._params.db_conf},
+                    )
+                    if metadata_regex.match(ctx.desc)
+                    else None
                 )
             ),
         )
