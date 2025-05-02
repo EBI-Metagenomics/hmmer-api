@@ -1,10 +1,11 @@
+import os
 from dataclasses import asdict
 from itertools import groupby
 from django.db import models
 from django.forms.models import model_to_dict
 from django.db.models.functions import MD5
 from pydantic import BaseModel, Field, model_validator
-from typing import List
+from typing import List, Any
 from result.models import Result
 
 
@@ -15,7 +16,7 @@ class Architecture(models.Model):
     accessions = models.TextField()
     names = models.TextField()
     score = models.PositiveIntegerField()
-    graphics = models.TextField()
+    graphics = models.JSONField()
 
     @classmethod
     def from_results(cls, result: Result, database: str):
@@ -47,6 +48,63 @@ class Architecture(models.Model):
                         **architecture_map[int(representative_hit.name)],
                         "sequence_accession": representative_hit.metadata.accession,
                         "sequence_external_link": representative_hit.metadata.external_link,
+                    },
+                    "count": len(group),
+                }
+            )
+
+        return sorted(architectures, key=lambda object: object["count"], reverse=True)
+
+    @classmethod
+    def from_raw_hits(cls, path: os.PathLike, db_config: Any):
+        result, _ = Result.from_file(path, db_conf=db_config, with_domains=False, with_metadata=False)
+
+        sorted_hits = sorted(
+            result.hits,
+            key=lambda hit: (hit.architecture_md5, hit.architecture_score, -hit.evalue),
+            reverse=True,
+        )
+
+        grouped = [(key, list(group)) for key, group in groupby(sorted_hits, key=lambda hit: hit.architecture_md5)]
+
+        sequence_indexes = [int(group[0].name) for _, group in grouped]
+
+        architecture_map = {
+            architecture.sequence_index: model_to_dict(architecture)
+            for architecture in Architecture.objects.filter(
+                sequence_index__in=sequence_indexes, database=db_config.architecture_database
+            )
+        }
+
+        architectures = []
+
+        for _, group in grouped:
+            representative_hit = group[0]
+            hit_index = representative_hit.index
+            result_with_metadata, _ = Result.from_file(
+                path, db_conf=db_config, start=hit_index, end=hit_index + 1, with_metadata=True, with_domains=True
+            )
+            hit_with_metadata = result_with_metadata.hits[0]
+
+            architecture = architecture_map[int(representative_hit.name)]
+
+            architecture["graphics"]["hits"] = [
+                {
+                    "tstart": domain.alignment_display.sqfrom,
+                    "tend": domain.alignment_display.sqto,
+                    "qstart": domain.alignment_display.hmmfrom,
+                    "qend": domain.alignment_display.hmmto,
+                }
+                for domain in hit_with_metadata.domains
+                if domain.is_included
+            ]
+
+            architectures.append(
+                {
+                    "architecture": {
+                        **architecture,
+                        "sequence_accession": hit_with_metadata.metadata.accession,
+                        "sequence_external_link": hit_with_metadata.metadata.external_link,
                     },
                     "count": len(group),
                 }
