@@ -197,12 +197,12 @@ BASE_URL = _django_config.base_url
 BUILD_HTTPS_DOWNLOAD_URLS = _django_config.build_https_download_urls
 CSRF_TRUSTED_ORIGINS = _django_config.csrf_trusted_origins
 
-if DEBUG:
-    CORS_ALLOW_ALL_ORIGINS = True
-    CORS_ALLOW_CREDENTIALS = True
-    ALLOWED_HOSTS += ["*"]
-    SESSION_COOKIE_SAMESITE = "None"
-    SESSION_COOKIE_SECURE = True  # Required when SameSite is 'None'
+# TODO: revise this
+CORS_ALLOW_ALL_ORIGINS = True
+CORS_ALLOW_CREDENTIALS = True
+ALLOWED_HOSTS += ["*"]
+SESSION_COOKIE_SAMESITE = "None"
+SESSION_COOKIE_SECURE = True  # Required when SameSite is 'None'
 
 CELERY = _celery_config
 CELERY_TASK_ROUTES = _celery_config.task_routes
