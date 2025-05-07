@@ -20,6 +20,8 @@ class DjangoSettings(BaseSettings):
     database_host: str = "localhost"
     database_port: int = 5432
 
+    debug: Optional[bool] = False
+
     model_config = SettingsConfigDict(env_prefix="DJANGO_")
 
 

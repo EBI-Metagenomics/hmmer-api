@@ -31,8 +31,7 @@ _celery_config = CelerySettings(_env_file=_config_env)
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = "django-insecure-+es_-5afm=y4du+nt2ypvwiaxwo6iuf8!^qjq*jbkf^(46^&3r"
 
-# SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
+DEBUG = _django_config.debug
 
 ALLOWED_HOSTS = ["127.0.0.1", "0.0.0.0"]
 
