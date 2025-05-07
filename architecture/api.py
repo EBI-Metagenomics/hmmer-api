@@ -41,6 +41,7 @@ class ArchitectureResponseSchema(Schema):
 class ArchitectureListResponseSchema(Schema):
     status: str
     architectures: Optional[List[ArchitectureSchema]]
+    page_count: Optional[int] = Field(default=None)
 
 
 class ArchitectureAnnotationsResponseSchema(Schema):
@@ -120,7 +121,7 @@ def get_annotations(request, id: str):
 
 
 @router.get("/{uuid:id}/{accessions}", response=ArchitectureListResponseSchema, tags=["architecture"])
-def get_all_architectures(request, id: str, accessions: str):
+def get_all_architectures(request, id: str, accessions: str, query: Query[ArchitectureQuerySchema]):
     job = HmmerJob.objects.get(id=id)
 
     try:
@@ -141,11 +142,18 @@ def get_all_architectures(request, id: str, accessions: str):
     except KeyError:
         raise ValueError(f"Database {job.database.id} not found in settings")
 
-    result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config, architecture=accessions)
-    sequence_indexes = [int(hit.name) for hit in result.hits]
+    result, hit_count = Result.from_file(json.loads(job.task.result), db_conf=db_config, architecture=accessions)
+
+    start = (query.page - 1) * query.page_size
+    end = query.page * query.page_size
+
+    if end > hit_count:
+        end = hit_count
+
+    sequence_indexes = [int(hit.name) for hit in result.hits[start:end]]
 
     architectures = Architecture.objects.filter(sequence_index__in=sequence_indexes, database=job.database.id).order_by(
         "-score"
     )
 
-    return {"status": SUCCESS, "architectures": architectures}
+    return {"status": SUCCESS, "architectures": architectures, "page_count": math.ceil(hit_count / query.page_size)}
