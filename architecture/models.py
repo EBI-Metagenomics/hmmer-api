@@ -17,7 +17,7 @@ class Architecture(models.Model):
     accessions = models.TextField()
     names = models.TextField()
     score = models.PositiveIntegerField()
-    graphics = models.JSONField()
+    graphics = models.TextField()
 
     @classmethod
     def from_results(cls, result: Result, database: str):
@@ -79,31 +79,18 @@ class Architecture(models.Model):
 
         architectures = []
 
-        for _, group in grouped:
+        for checksum, group in grouped:
             representative_hit = group[0]
             hit_index = representative_hit.index
             result_with_metadata, _ = Result.from_file(
-                path, db_conf=db_config, start=hit_index, end=hit_index + 1, with_metadata=True, with_domains=True
+                path, db_conf=db_config, start=hit_index, end=hit_index + 1, with_metadata=True
             )
             hit_with_metadata = result_with_metadata.hits[0]
-
-            architecture = architecture_map[int(representative_hit.name)]
-
-            architecture["graphics"]["hits"] = [
-                {
-                    "tstart": domain.alignment_display.sqfrom,
-                    "tend": domain.alignment_display.sqto,
-                    "qstart": domain.alignment_display.hmmfrom,
-                    "qend": domain.alignment_display.hmmto,
-                }
-                for domain in hit_with_metadata.domains
-                if domain.is_included
-            ]
 
             architectures.append(
                 {
                     "architecture": {
-                        **architecture,
+                        **architecture_map[int(representative_hit.name)],
                         "sequence_accession": hit_with_metadata.metadata.accession,
                         "sequence_external_link": hit_with_metadata.metadata.external_link,
                     },
