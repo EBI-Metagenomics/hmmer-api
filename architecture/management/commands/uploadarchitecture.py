@@ -31,7 +31,8 @@ class Command(BaseCommand):
             columns = list(map(str.strip, header_line.split("\t")))
             columns_set = set(columns)
 
-            if not bool(missing := ARCHITECTURE_REQUIRED_COLUMNS - columns_set):
+            if not ARCHITECTURE_REQUIRED_COLUMNS.issubset(columns_set):
+                missing = ARCHITECTURE_REQUIRED_COLUMNS - columns_set
                 raise CommandError(
                     f"TSV file {options["architecture_file"]} is missing required columns: {', '.join(missing)}"
                 )
