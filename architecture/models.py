@@ -57,15 +57,18 @@ class Architecture(models.Model):
 
     @classmethod
     def from_raw_hits(cls, path: os.PathLike, db_config: Any):
-        result, _ = Result.from_file(path, db_conf=db_config, with_domains=False, with_metadata=False)
+        result, _ = Result.from_file(path, db_conf=db_config, with_domains=False, with_metadata=True)
 
         sorted_hits = sorted(
             result.hits,
-            key=lambda hit: (hit.architecture_md5, hit.architecture_score, -hit.evalue),
+            key=lambda hit: (hit.metadata.architecture_checksum, hit.metadata.architecture_score, -hit.evalue),
             reverse=True,
         )
 
-        grouped = [(key, list(group)) for key, group in groupby(sorted_hits, key=lambda hit: hit.architecture_md5)]
+        grouped = [
+            (key, list(group))
+            for key, group in groupby(sorted_hits, key=lambda hit: hit.metadata.architecture_checksum)
+        ]
 
         sequence_indexes = [int(group[0].name) for _, group in grouped]
 
