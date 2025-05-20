@@ -108,7 +108,7 @@ class PfamMetadata(BaseModel):
     accession: str = Field(alias="a")
     identifier: str = Field(alias="i")
     description: str = Field(alias="d")
-    clan: str = Field(alias="c")
+    clan: Optional[str] = Field(alias="c", default=None)
     type: str = Field(alias="t")
     seq_ga: float = Field(alias="sg")
     dom_ga: float = Field(alias="dg")
