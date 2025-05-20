@@ -152,8 +152,8 @@ def get_all_architectures(request, id: str, accessions: str, query: Query[Archit
 
     sequence_indexes = [int(hit.name) for hit in result.hits[start:end]]
 
-    architectures = Architecture.objects.filter(sequence_index__in=sequence_indexes, database=job.database.id).order_by(
-        "-score"
-    )
+    architectures = Architecture.objects.filter(
+        sequence_index__in=sequence_indexes, database=db_config.architecture_database
+    ).order_by("-score")
 
     return {"status": SUCCESS, "architectures": architectures, "page_count": math.ceil(hit_count / query.page_size)}
