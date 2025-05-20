@@ -29,7 +29,7 @@ _celery_config = CelerySettings(_env_file=_config_env)
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-+es_-5afm=y4du+nt2ypvwiaxwo6iuf8!^qjq*jbkf^(46^&3r"
+SECRET_KEY = _django_config.secret_key
 
 DEBUG = _django_config.debug
 

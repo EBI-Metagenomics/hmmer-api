@@ -7,6 +7,7 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class DjangoSettings(BaseSettings):
+    secret_key: Optional[str] = "django-insecure-+es_-5afm=y4du+nt2ypvwiaxwo6iuf8!^qjq*jbkf^(46^&3r"
     csrf_trusted_origins: List[str] = []
     base_url: str = ""  # for EBI use 'Tools/hmmer/' (no leading slash)
     build_https_download_urls: bool = False
