@@ -172,3 +172,4 @@ class Database(models.Model):
     name = models.CharField(max_length=32)
     version = models.CharField(max_length=32)
     release_date = models.DateField(default=datetime.date.today)
+    order = models.IntegerField(default=-1)

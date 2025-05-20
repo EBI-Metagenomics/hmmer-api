@@ -37,7 +37,7 @@ class DatabaseResponseSchema(ModelSchema):
 
 @router.get("/databases", response=List[DatabaseResponseSchema], tags=["search"])
 def get_databases(request):
-    return Database.objects.all()
+    return Database.objects.all().order_by("order")
 
 
 class JobDetailsResponseSchema(ModelSchema):
