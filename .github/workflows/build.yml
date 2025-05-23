@@ -1,4 +1,4 @@
-name: Build and push the latest api
+name: Build and push the api
 
 on:
     push:
@@ -24,21 +24,29 @@ jobs:
             echo "ENVIRONMENT=development" >> $GITHUB_ENV
           fi
 
+          # Extract tag name if this is a tag push
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+            echo "TAG_NAME=$TAG_NAME" >> $GITHUB_ENV
+            echo "IS_TAG=true" >> $GITHUB_ENV
+          else
+            echo "IS_TAG=false" >> $GITHUB_ENV
+          fi
+
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
-      - name: Build Docker Image
-        uses: docker/build-push-action@v5
-        with:
-            context: .
-            file: ./Dockerfile
-            load: true
-            push: false
-            tags: |
-              quay.io/microbiome-informatics/hmmer-api:${{ env.ENVIRONMENT }}-${{ github.sha }}
-              quay.io/microbiome-informatics/hmmer-api:${{ env.ENVIRONMENT  }}-latest
-            cache-from: type=gha
-            cache-to: type=gha,mode=max
+      - name: Build Docker tags
+        id: build-tags
+        run: |
+          TAGS="quay.io/microbiome-informatics/hmmer-api:${{ env.ENVIRONMENT }}-latest"
+          
+          # Add tag-specific image tag if this push originated from a tag
+          if [[ "${{ env.IS_TAG }}" == "true" ]]; then
+            TAGS="$TAGS,quay.io/microbiome-informatics/hmmer-api:${{ env.TAG_NAME }}"
+          fi
+          
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
       - name: Login to Quay.io
         uses: docker/login-action@v3
@@ -47,5 +55,10 @@ jobs:
             username: ${{ secrets.QUAY_USERNAME }}
             password: ${{ secrets.QUAY_PASSWORD }}
 
-      - name: Push
-        run: docker push quay.io/microbiome-informatics/hmmer-api --all-tags
+      - name: Build Docker Image
+        uses: docker/build-push-action@v6
+        with:
+            push: true
+            tags: ${{ steps.build-tags.outputs.tags }}
+            cache-from: type=gha
+            cache-to: type=gha,mode=max
