@@ -1,4 +1,4 @@
-name: Create a new image with the release number
+name: Build and push the latest api
 
 on:
     push:
