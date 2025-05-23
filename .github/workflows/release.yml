@@ -29,9 +29,9 @@ jobs:
               VERSION="${TAG_NAME:1}"  # Remove leading 'v'
               echo "Tag is valid SemVer with 'v' prefix: $TAG_NAME"
               echo "VERSION=$VERSION" >> "$GITHUB_OUTPUT"
-              echo "VERSION_VALID='true'" >> "$GITHUB_OUTPUT"
+              echo "VERSION_VALID=true" >> "$GITHUB_OUTPUT"
             else
-              echo "VERSION_VALID='false'" >> "$GITHUB_OUTPUT"
+              echo "VERSION_VALID=false" >> "$GITHUB_OUTPUT"
               echo "::warning::Tag '$TAG_NAME' is not in 'vMAJOR.MINOR.PATCH' format. Aborting gracefully."
             fi
 
