@@ -19,55 +19,18 @@ class Architecture(models.Model):
     graphics = models.JSONField()
 
     @classmethod
-    def from_results(cls, result: Result, database: str):
-        sorted_hits = sorted(
-            result.hits,
-            key=lambda hit: (hit.metadata.architecture_checksum, hit.metadata.architecture_score, -hit.evalue),
-            reverse=True,
-        )
-
-        grouped = [
-            (key, list(group))
-            for key, group in groupby(sorted_hits, key=lambda hit: hit.metadata.architecture_checksum)
-        ]
-
-        sequence_indexes = [int(group[0].name) for _, group in grouped]
-
-        architecture_map = {
-            architecture.sequence_index: model_to_dict(architecture)
-            for architecture in Architecture.objects.filter(sequence_index__in=sequence_indexes, database=database)
-        }
-
-        architectures = []
-
-        for checksum, group in grouped:
-            representative_hit = group[0]
-            architectures.append(
-                {
-                    "architecture": {
-                        **architecture_map[int(representative_hit.name)],
-                        "sequence_accession": representative_hit.metadata.accession,
-                        "sequence_external_link": representative_hit.metadata.external_link,
-                    },
-                    "count": len(group),
-                }
-            )
-
-        return sorted(architectures, key=lambda object: object["count"], reverse=True)
-
-    @classmethod
     def from_raw_hits(cls, path: os.PathLike, db_config: Any):
-        result, _ = Result.from_file(path, db_conf=db_config, with_domains=False, with_metadata=True)
+        result, _ = Result.from_file(path, db_conf=db_config, with_domains=False, with_metadata=False)
 
         sorted_hits = sorted(
             result.hits,
-            key=lambda hit: (hit.metadata.architecture_checksum, hit.metadata.architecture_score, -hit.evalue),
+            key=lambda hit: (hit.architecture_hash, hit.architecture_score, -hit.evalue),
             reverse=True,
         )
 
         grouped = [
             (key, list(group))
-            for key, group in groupby(sorted_hits, key=lambda hit: hit.metadata.architecture_checksum)
+            for key, group in groupby(sorted_hits, key=lambda hit: hit.architecture_hash)
         ]
 
         sequence_indexes = [int(group[0].name) for _, group in grouped]

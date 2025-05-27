@@ -465,6 +465,11 @@ class P7Domain(HmmpgmdModel):
         return False
 
 
+metadata_regex = re.compile(r"\{.*\}$")
+architecture_hash_regex = re.compile(r"^[a-f0-9]+")
+architecture_score_regex = re.compile(r";(\d+);")
+
+
 @dataclass
 class P7Hit(HmmpgmdModel):
     index: int = csfield(Computed(lambda ctx: ctx._params.start + ctx._index))
@@ -531,12 +536,14 @@ class P7Hit(HmmpgmdModel):
     """Description of the hit"""
     evalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._.stats.Z))
     """E-value of the hit"""
+    architecture_hash: Optional[int] = csfield(Computed(lambda ctx: P7Hit.decode_architecture_hash(ctx.desc)))
+    architecture_score: Optional[int] = csfield(Computed(lambda ctx: P7Hit.decode_architecture_score(ctx.desc)))
     metadata: Optional[Dict[str, Any]] = csfield(
         If(
             lambda ctx: ctx._params.get("with_metadata", True) and ctx._params.db_conf.metadata_model_class is not None,
             Computed(
-                lambda ctx: ctx._params.db_conf.metadata_model_class.model_validate_json(
-                    ctx.desc, context={"db_conf": ctx._params.db_conf}
+                lambda ctx: P7Hit.decode_metadata(
+                    ctx.desc, ctx._params.db_conf.metadata_model_class, ctx._params.db_conf
                 )
             ),
         )
@@ -553,6 +560,33 @@ class P7Hit(HmmpgmdModel):
         old_dict = asdict(self)
         old_dict["seqidx"] = int(old_dict["name"])
         return {key: old_dict[key] for key in old_dict if key not in fields_to_exclude}
+
+    @classmethod
+    def decode_metadata(cls, input: str, metadata_model_class: Any, db_conf: Any):
+        match = re.search(metadata_regex, input)
+
+        if match:
+            return metadata_model_class.model_validate_json(match.group(0), context={"db_conf": db_conf})
+        else:
+            return None
+
+    @classmethod
+    def decode_architecture_hash(cls, input: str):
+        match = re.search(architecture_hash_regex, input)
+
+        if match:
+            return int(match.group(0), 16)
+        else:
+            return None
+
+    @classmethod
+    def decode_architecture_score(cls, input: str):
+        match = re.search(architecture_score_regex, input)
+
+        if match:
+            return int(match.group(1))
+        else:
+            return None
 
 
 class Result(BaseModel):
@@ -779,7 +813,7 @@ def post_process_pfam(result: Result):
         if not flat_domain["domain"].display:
             continue
 
-        for other_flat_domain in sorted(all_domains, key=lambda d: d["domain"].iali)[i + 1:]:
+        for other_flat_domain in sorted(all_domains, key=lambda d: d["domain"].iali)[i +1 :]:
             if not other_flat_domain["domain"].display:
                 continue
 
