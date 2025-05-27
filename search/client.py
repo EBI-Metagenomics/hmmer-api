@@ -10,18 +10,14 @@ logger = logging.getLogger(__name__)
 
 class HmmpgmdError(Exception):
     """Base exception for all hmmpgmd errors."""
-    def __init__(self, status: HmmpgmdStatus, message: str = ""):
-        self.status = status
 
-        super().__init__(message)
+    def __init__(self, status: HmmpgmdStatus, message: str):
+        super().__init__(f"Hmmpgmd error: {message} ({status})")
 
 
 class HmmpgmdValueError(HmmpgmdError):
     """Invalid argument/parameter or value out of range."""
-    def __init__(self, status: HmmpgmdStatus, message: str = ""):
-        if status not in (HmmpgmdStatus.EINVAL, HmmpgmdStatus.ERANGE, HmmpgmdStatus.ETYPE):
-            raise ValueError("Invalid status for HmmpgmdValueError")
-        super().__init__(status, message)
+    pass
 
 
 class HmmpgmdServerError(HmmpgmdError):
@@ -61,9 +57,14 @@ class Client:
 
         if status.status != HmmpgmdStatus.OK:
             message = self.socket.recv(status.message_size)
-            decoded_message = message.decode().replace('\x00', '')
+            decoded_message = message.decode().replace("\x00", "")
 
-            if status.status in (HmmpgmdStatus.EINVAL, HmmpgmdStatus.ERANGE, HmmpgmdStatus.ETYPE):
+            if status.status in (
+                HmmpgmdStatus.EINVAL,
+                HmmpgmdStatus.ERANGE,
+                HmmpgmdStatus.ETYPE,
+                HmmpgmdStatus.EFORMAT,
+            ):
                 raise HmmpgmdValueError(status.status, decoded_message)
             else:
                 raise HmmpgmdServerError(status.status, decoded_message)
