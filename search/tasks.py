@@ -43,6 +43,6 @@ def run_search(self, job_id: str):
         logger.warning(e)
         storage.delete(f"{job.id}/hits.bin")
 
-        raise self.retry(exc=e)
+        raise self.retry(exc=e, countdown=30 * 60)
 
     return storage.path(path)
