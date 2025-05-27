@@ -1,11 +1,13 @@
 import logging
+from socket import gaierror
+
 from django.conf import settings
 from django_celery_results.models import TaskResult
 from django.core.files.base import ContentFile
 from django.core.files.storage import storages
 
 from hmmerapi.celery import app
-from search.client import Client
+from search.client import Client, HmmpgmdServerError
 from .models import HmmerJob
 
 logger = logging.getLogger(__name__)
@@ -29,12 +31,18 @@ def run_search(self, job_id: str):
 
     path = storage.save(f"{job.id}/hits.bin", ContentFile(b""))
 
-    with Client(address=db_config.host, port=db_config.port) as client:
-        client.search(
-            db_cmd=job.hmmpgmd_db,
-            parameters=job.hmmpgmd_parameters,
-            query=job.hmmpgmd_query,
-            path=storage.path(path),
-        )
+    try:
+        with Client(address=db_config.host, port=db_config.port) as client:
+            client.search(
+                db_cmd=job.hmmpgmd_db,
+                parameters=job.hmmpgmd_parameters,
+                query=job.hmmpgmd_query,
+                path=storage.path(path),
+            )
+    except (HmmpgmdServerError, ConnectionError, gaierror) as e:
+        logger.warning(e)
+        storage.delete(f"{job.id}/hits.bin")
+
+        raise self.retry(exc=e)
 
     return storage.path(path)
