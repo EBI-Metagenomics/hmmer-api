@@ -84,13 +84,21 @@ class SearchRequestSchema(ModelSchema):
         algo = info.context["request"].get_full_path_info().split("/")[-1]
 
         if algo == HmmerJob.AlgoChoices.PHMMER or algo == HmmerJob.AlgoChoices.HMMSCAN:
-            try:
-                with SequenceFile(io.BytesIO(value.encode())) as fh:
-                    fh.guess_alphabet()
+            value_with_header = value if value.startswith(">") else f">Unnamed query\n{value}"
 
-                return value
+            try:
+                with SequenceFile(io.BytesIO(value_with_header.encode()), format="fasta") as fh:
+                    fh.guess_alphabet()
             except ValueError:
                 raise PydanticCustomError("invalid_input", "Sequence is not valid")
+
+            with SequenceFile(io.BytesIO(value_with_header.encode()), format="fasta") as fh:
+                block = fh.read_block()
+
+                if len(block) > 1:
+                    raise PydanticCustomError("invalid_input", "Only one sequence is allowed")
+
+            return value_with_header
 
         if algo == HmmerJob.AlgoChoices.HMMSEARCH:
             try:
