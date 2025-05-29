@@ -112,6 +112,16 @@ class SearchRequestSchema(ModelSchema):
                 return value
 
             try:
+                with SequenceFile(io.BytesIO(value.encode()), format="fasta") as fh:
+                    block = fh.read_block()
+                    is_fasta = True
+            except ValueError:
+                is_fasta = False
+
+            if is_fasta:
+                raise PydanticCustomError("invalid_input", "Invalid input")
+
+            try:
                 with MSAFile(io.BytesIO(value.encode())) as fh:
                     fh.guess_alphabet()
                 is_valid_msa = True
