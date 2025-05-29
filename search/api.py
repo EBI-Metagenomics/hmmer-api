@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404
 from ninja import Router, ModelSchema, Schema, Field
 from pydantic import UUID4, ValidationInfo, field_validator
 from pydantic_core import PydanticCustomError
-from pyhmmer.easel import SequenceFile, MSAFile
+from pyhmmer.easel import SequenceFile, MSAFile, TextSequence
 from pyhmmer.plan7 import HMMFile
 from typing import List
 
@@ -17,6 +17,8 @@ from architecture.tasks import build_architecture, build_annotation
 from taxonomy.tasks import build_taxonomy_tree, build_taxonomy_distribution_graph
 from .tasks import run_search
 from .models import HmmerJob, Database
+from .schema import ValidationErrorSchema
+
 
 logger = logging.getLogger(__name__)
 
@@ -98,6 +100,11 @@ class SearchRequestSchema(ModelSchema):
                 if len(block) > 1:
                     raise PydanticCustomError("invalid_input", "Only one sequence is allowed")
 
+                input_sequence: TextSequence = block[0]
+
+                if not input_sequence.sequence.strip():
+                    raise PydanticCustomError("invalid_input", "Sequence is not valid")
+
             return value_with_header
 
         if algo == HmmerJob.AlgoChoices.HMMSEARCH:
@@ -156,7 +163,7 @@ class SearchResponseSchema(Schema):
     id: UUID4
 
 
-@router.post("{algo}", response=SearchResponseSchema, tags=["search"])
+@router.post("{algo}", response={200: SearchResponseSchema, 422: ValidationErrorSchema}, tags=["search"])
 def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequestSchema):
     job = HmmerJob(**body.dict(), algo=algo)
 
