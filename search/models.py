@@ -68,6 +68,7 @@ class HmmerJob(models.Model):
     with_architecture = models.BooleanField(default=False)
 
     date_submitted = models.DateTimeField(auto_now_add=True, null=True)
+    number_of_hits = models.IntegerField(null=True, blank=True)
 
     @property
     def hmmpgmd_db(self) -> str:

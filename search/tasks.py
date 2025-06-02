@@ -8,6 +8,7 @@ from django.core.files.storage import storages
 
 from hmmerapi.celery import app
 from search.client import Client, HmmpgmdServerError
+from result.models import HmmdSearchStats
 from .models import HmmerJob
 
 logger = logging.getLogger(__name__)
@@ -39,6 +40,11 @@ def run_search(self, job_id: str):
                 query=job.hmmpgmd_query,
                 path=storage.path(path),
             )
+
+        stats = HmmdSearchStats.from_file(storage.path(path))
+        job.number_of_hits = stats.nreported
+        job.save(update_fields=["number_of_hits"])
+
     except (HmmpgmdServerError, ConnectionError, gaierror) as e:
         logger.warning(e)
         storage.delete(f"{job.id}/hits.bin")
