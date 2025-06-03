@@ -67,6 +67,9 @@ class HmmerJob(models.Model):
     with_taxonomy = models.BooleanField(default=False)
     with_architecture = models.BooleanField(default=False)
 
+    date_submitted = models.DateTimeField(auto_now_add=True, null=True)
+    number_of_hits = models.IntegerField(null=True, blank=True)
+
     @property
     def hmmpgmd_db(self) -> str:
         try:
@@ -81,18 +84,18 @@ class HmmerJob(models.Model):
 
     @property
     def hmmpgmd_parameters(self) -> str:
-        fields_to_exclude = [
-            "id",
-            "task",
-            "taxonomy_distribution_task",
-            "taxonomy_tree_task",
-            "taxonomy_distribution_graph_task",
-            "algo",
-            "database",
-            "input",
-            "threshold",
-            "with_taxonomy",
-            "with_architecture",
+        fields_to_include = [
+            "E",
+            "domE",
+            "T",
+            "domT",
+            "incE",
+            "incdomE",
+            "incT",
+            "incdomT",
+            "popen",
+            "pextend",
+            "mx",
         ]
 
         params = ""
@@ -103,7 +106,7 @@ class HmmerJob(models.Model):
         params += " ".join(
             f"{'-' if field.name in ["E", "T"] else '--'}{field.name} {getattr(self, field.name)}"
             for field in HmmerJob._meta.get_fields()
-            if field.name not in fields_to_exclude and getattr(self, field.name) is not None
+            if field.name in fields_to_include and getattr(self, field.name) is not None
         )
 
         return params
@@ -171,4 +174,5 @@ class Database(models.Model):
     type = models.CharField(max_length=16, choices=TypeChoices.choices, default=TypeChoices.SEQ)
     name = models.CharField(max_length=32)
     version = models.CharField(max_length=32)
-    release_date = models.DateField(default=datetime.date.today())
+    release_date = models.DateField(default=datetime.date.today)
+    order = models.IntegerField(default=-1)

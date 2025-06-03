@@ -1,11 +1,16 @@
 import json
 import logging
+import math
+from hashlib import md5
 
+from django.db.models.functions import MD5
+from django.conf import settings
 from celery.states import SUCCESS, PENDING
-from ninja import Router, ModelSchema, Schema, Field
+from ninja import Router, ModelSchema, Schema, Field, Query
 from typing import List, Optional
 
 from search.models import HmmerJob
+from result.models import Result
 from .models import Architecture, Annotation
 
 logger = logging.getLogger(__name__)
@@ -29,12 +34,14 @@ class ArchitectureAggregationSchema(Schema):
 
 class ArchitectureResponseSchema(Schema):
     status: str
-    architectures: Optional[List[ArchitectureAggregationSchema]]
+    architectures: Optional[List[ArchitectureAggregationSchema]] = Field(default=None)
+    page_count: Optional[int] = Field(default=None)
 
 
 class ArchitectureListResponseSchema(Schema):
     status: str
     architectures: Optional[List[ArchitectureSchema]]
+    page_count: Optional[int] = Field(default=None)
 
 
 class ArchitectureAnnotationsResponseSchema(Schema):
@@ -42,14 +49,23 @@ class ArchitectureAnnotationsResponseSchema(Schema):
     annotations: Optional[List[Annotation]] = Field(default=None)
 
 
+class ArchitectureQuerySchema(Schema):
+    page: int = Field(default=1, gt=0)
+    page_size: int = Field(default=50, gt=0)
+
+
 @router.get("/name/{accessions}", response=ArchitectureSchema, tags=["architecture"])
 def get_architecture_name(request, accessions: str):
-    architecture = Architecture.objects.filter(accessions=accessions).first()
+    accessions_md5 = md5(accessions.encode()).hexdigest()
+
+    architecture = (
+        Architecture.objects.annotate(accessions_md5=MD5("accessions")).filter(accessions_md5=accessions_md5).first()
+    )
     return architecture
 
 
 @router.get("/{uuid:id}", response=ArchitectureResponseSchema, tags=["architecture"])
-def get_domain_architectures(request, id: str):
+def get_domain_architectures(request, id: str, query: Query[ArchitectureQuerySchema]):
     job = HmmerJob.objects.get(id=id)
 
     try:
@@ -66,13 +82,20 @@ def get_domain_architectures(request, id: str):
         return {"status": architecture_status}
 
     with open(json.loads(job.architecture_task.result), "rt") as fh:
+        architectures = json.load(fh)
+
+        architectures_count = len(architectures)
+
+        start = (query.page - 1) * query.page_size
+        end = query.page * query.page_size
+
+        if end > architectures_count:
+            end = architectures_count
+
         return {
             "status": SUCCESS,
-            "architectures": sorted(
-                [{"count": len(architectures), "architecture": architectures[0]} for architectures in json.load(fh)],
-                key=lambda x: x["count"],
-                reverse=True,
-            ),
+            "architectures": architectures[start:end],
+            "page_count": math.ceil(architectures_count / query.page_size),
         }
 
 
@@ -94,14 +117,11 @@ def get_annotations(request, id: str):
         return {"status": annotations_status}
 
     with open(json.loads(job.annotation_task.result), "rt") as fh:
-        return {
-            "status": SUCCESS,
-            "annotations": [json.load(fh)]
-        }
+        return {"status": SUCCESS, "annotations": [json.load(fh)]}
 
 
-@router.get("/{uuid:id}/{name}", response=ArchitectureListResponseSchema, tags=["architecture"])
-def get_all_architectures(request, id: str, name: str):
+@router.get("/{uuid:id}/{accessions}", response=ArchitectureListResponseSchema, tags=["architecture"])
+def get_all_architectures(request, id: str, accessions: str, query: Query[ArchitectureQuerySchema]):
     job = HmmerJob.objects.get(id=id)
 
     try:
@@ -117,9 +137,23 @@ def get_all_architectures(request, id: str, name: str):
     if search_status != SUCCESS or architecture_status != SUCCESS:
         return {"status": architecture_status}
 
-    with open(json.loads(job.architecture_task.result), "rt") as fh:
-        all_architectures = json.load(fh)
+    try:
+        db_config = settings.HMMER.databases[job.database.id]
+    except KeyError:
+        raise ValueError(f"Database {job.database.id} not found in settings")
 
-        [architectures] = [architectures for architectures in all_architectures if architectures[0]["names"] == name]
+    result, hit_count = Result.from_file(json.loads(job.task.result), db_conf=db_config, architecture=accessions)
 
-        return {"status": SUCCESS, "architectures": architectures}
+    start = (query.page - 1) * query.page_size
+    end = query.page * query.page_size
+
+    if end > hit_count:
+        end = hit_count
+
+    sequence_indexes = [int(hit.name) for hit in result.hits[start:end]]
+
+    architectures = Architecture.objects.filter(
+        sequence_index__in=sequence_indexes, database=db_config.architecture_database
+    ).order_by("-score")
+
+    return {"status": SUCCESS, "architectures": architectures, "page_count": math.ceil(hit_count / query.page_size)}

@@ -86,7 +86,7 @@ def get_domains(request, id: str, query: Query[AlignmentQuerySchema]):
         return {"status": status}
 
     try:
-        db_config = settings.HMMER.databases[job.id]
+        db_config = settings.HMMER.databases[job.database.id]
     except KeyError:
         raise ValueError(f"Database {job.database.id} not found in settings")
 

@@ -1,9 +1,11 @@
+import os
 from dataclasses import asdict
+from itertools import groupby
 from django.db import models
-from django.contrib.postgres.aggregates import ArrayAgg
-from django.contrib.postgres.indexes import HashIndex
+from django.forms.models import model_to_dict
+from django.db.models.functions import MD5
 from pydantic import BaseModel, Field, model_validator
-from typing import List
+from typing import List, Any
 from result.models import Result
 
 
@@ -14,51 +16,110 @@ class Architecture(models.Model):
     accessions = models.TextField()
     names = models.TextField()
     score = models.PositiveIntegerField()
-    graphics = models.TextField()
+    graphics = models.JSONField()
 
     @classmethod
     def from_results(cls, result: Result, database: str):
-        sequence_indexes = [int(hit.name) for hit in result.hits]
-        sequence_accessions = {int(hit.name): hit.metadata.accession for hit in result.hits}
-        sequence_external_links = {int(hit.name): hit.metadata.external_link for hit in result.hits}
-        sequence_evalues = {int(hit.name): hit.evalue for hit in result.hits}
-
-        grouped = (
-            Architecture.objects.filter(sequence_index__in=sequence_indexes)
-            .filter(database=database)
-            .order_by("accessions")
-            .values("accessions", "names")
-            .annotate(
-                sequence_index_list=ArrayAgg("sequence_index"),
-                score_list=ArrayAgg("score"),
-                graphics_list=ArrayAgg("graphics"),
-            )
+        sorted_hits = sorted(
+            result.hits,
+            key=lambda hit: (hit.metadata.architecture_checksum, hit.metadata.architecture_score, -hit.evalue),
+            reverse=True,
         )
 
-        return [
-            sorted(
-                [
-                    {
-                        "sequence_index": sequence_index,
-                        "sequence_accession": sequence_accessions[sequence_index],
-                        "sequence_external_link": sequence_external_links[sequence_index],
-                        "accessions": group["accessions"],
-                        "names": group["names"],
-                        "score": score,
-                        "graphics": graphics,
-                    }
-                    for sequence_index, score, graphics in zip(
-                        group["sequence_index_list"], group["score_list"], group["graphics_list"]
-                    )
-                ],
-                key=lambda architecture: (architecture["score"], -sequence_evalues[architecture["sequence_index"]]),
-                reverse=True,
-            )
-            for group in grouped
+        grouped = [
+            (key, list(group))
+            for key, group in groupby(sorted_hits, key=lambda hit: hit.metadata.architecture_checksum)
         ]
 
+        sequence_indexes = [int(group[0].name) for _, group in grouped]
+
+        architecture_map = {
+            architecture.sequence_index: model_to_dict(architecture)
+            for architecture in Architecture.objects.filter(sequence_index__in=sequence_indexes, database=database)
+        }
+
+        architectures = []
+
+        for checksum, group in grouped:
+            representative_hit = group[0]
+            architectures.append(
+                {
+                    "architecture": {
+                        **architecture_map[int(representative_hit.name)],
+                        "sequence_accession": representative_hit.metadata.accession,
+                        "sequence_external_link": representative_hit.metadata.external_link,
+                    },
+                    "count": len(group),
+                }
+            )
+
+        return sorted(architectures, key=lambda object: object["count"], reverse=True)
+
+    @classmethod
+    def from_raw_hits(cls, path: os.PathLike, db_config: Any):
+        result, _ = Result.from_file(path, db_conf=db_config, with_domains=False, with_metadata=True)
+
+        sorted_hits = sorted(
+            result.hits,
+            key=lambda hit: (hit.metadata.architecture_checksum, hit.metadata.architecture_score, -hit.evalue),
+            reverse=True,
+        )
+
+        grouped = [
+            (key, list(group))
+            for key, group in groupby(sorted_hits, key=lambda hit: hit.metadata.architecture_checksum)
+        ]
+
+        sequence_indexes = [int(group[0].name) for _, group in grouped]
+
+        architecture_map = {
+            architecture.sequence_index: model_to_dict(architecture)
+            for architecture in Architecture.objects.filter(
+                sequence_index__in=sequence_indexes, database=db_config.architecture_database
+            )
+        }
+
+        architectures = []
+
+        for _, group in grouped:
+            representative_hit = group[0]
+            hit_index = representative_hit.index
+            result_with_metadata, _ = Result.from_file(
+                path, db_conf=db_config, start=hit_index, end=hit_index + 1, with_metadata=True, with_domains=True
+            )
+            hit_with_metadata = result_with_metadata.hits[0]
+
+            architecture = architecture_map[int(representative_hit.name)]
+
+            architecture["graphics"]["hits"] = [
+                {
+                    "tstart": domain.alignment_display.sqfrom,
+                    "tend": domain.alignment_display.sqto,
+                    "qstart": domain.alignment_display.hmmfrom,
+                    "qend": domain.alignment_display.hmmto,
+                }
+                for domain in hit_with_metadata.domains
+                if domain.is_included
+            ]
+
+            architectures.append(
+                {
+                    "architecture": {
+                        **architecture,
+                        "sequence_accession": hit_with_metadata.metadata.accession,
+                        "sequence_external_link": hit_with_metadata.metadata.external_link,
+                    },
+                    "count": len(group),
+                }
+            )
+
+        return sorted(architectures, key=lambda object: object["count"], reverse=True)
+
     class Meta:
-        indexes = [HashIndex(fields=["accessions"])]
+        indexes = [
+            models.Index(fields=["sequence_index", "database"]),
+            models.Index(MD5("accessions"), name="idx_accessions_md5"),
+        ]
 
 
 class Region(BaseModel):

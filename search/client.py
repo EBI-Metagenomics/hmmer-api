@@ -8,6 +8,23 @@ from result.models import HmmdSearchStatus, HmmpgmdStatus
 logger = logging.getLogger(__name__)
 
 
+class HmmpgmdError(Exception):
+    """Base exception for all hmmpgmd errors."""
+
+    def __init__(self, status: HmmpgmdStatus, message: str):
+        super().__init__(f"Hmmpgmd error: {message} ({status})")
+
+
+class HmmpgmdValueError(HmmpgmdError):
+    """Invalid argument/parameter or value out of range."""
+    pass
+
+
+class HmmpgmdServerError(HmmpgmdError):
+    """Server-related errors."""
+    pass
+
+
 class Client:
     def __init__(self, address="127.0.0.1", port=51371):
         self.address = address
@@ -40,7 +57,17 @@ class Client:
 
         if status.status != HmmpgmdStatus.OK:
             message = self.socket.recv(status.message_size)
-            raise Exception(message.decode())
+            decoded_message = message.decode().replace("\x00", "")
+
+            if status.status in (
+                HmmpgmdStatus.EINVAL,
+                HmmpgmdStatus.ERANGE,
+                HmmpgmdStatus.ETYPE,
+                HmmpgmdStatus.EFORMAT,
+            ):
+                raise HmmpgmdValueError(status.status, decoded_message)
+            else:
+                raise HmmpgmdServerError(status.status, decoded_message)
 
         if path is not None:
             with open(path, mode="wb") as fh:

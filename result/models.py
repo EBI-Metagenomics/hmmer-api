@@ -108,7 +108,7 @@ class PfamMetadata(BaseModel):
     accession: str = Field(alias="a")
     identifier: str = Field(alias="i")
     description: str = Field(alias="d")
-    clan: str = Field(alias="c")
+    clan: Optional[str] = Field(alias="c", default=None)
     type: str = Field(alias="t")
     seq_ga: float = Field(alias="sg")
     dom_ga: float = Field(alias="dg")
@@ -830,7 +830,7 @@ def predict_active_sites(result: Result):
             subpattern = False
             matched_patterns = {}
 
-            for source, patterns in hit.metadata.active_site:
+            for source, patterns in hit.metadata.active_sites:
                 # Check this isn't a subpattern of a bigger pattern already found on the sequence
                 # Patterns were added to @{$self->{_act_site_data}} in order of size (longest pattern first)
                 for asp in matched_patterns.keys():

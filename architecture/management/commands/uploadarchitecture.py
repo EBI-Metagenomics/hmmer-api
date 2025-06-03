@@ -21,9 +21,11 @@ class Command(BaseCommand):
         with connection.cursor() as cursor, open(options["architecture_file"]) as tsv_fh:
             if options["replace"]:
                 self.stdout.write(self.style.WARNING("Deleting existing architecture records..."))
+                self.stdout.flush()
                 cursor.execute(f"TRUNCATE {options["table"]} CASCADE;")
 
             self.stdout.write(f"Inserting rows into {self.style.SQL_TABLE(options["table"])}")
+            self.stdout.flush()
 
             header_line = tsv_fh.readline()
             columns = list(map(str.strip, header_line.split("\t")))
@@ -43,3 +45,4 @@ class Command(BaseCommand):
             cursor.copy_from(tsv_fh, options["table"], sep="\t", columns=columns)
 
             self.stdout.write(self.style.SUCCESS("Architecture loaded successfully!"))
+            self.stdout.flush()

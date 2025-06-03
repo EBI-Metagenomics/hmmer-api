@@ -9,7 +9,7 @@ from django.shortcuts import get_object_or_404
 from ninja import Router, ModelSchema, Schema, Field
 from pydantic import UUID4, ValidationInfo, field_validator
 from pydantic_core import PydanticCustomError
-from pyhmmer.easel import SequenceFile, MSAFile
+from pyhmmer.easel import SequenceFile, MSAFile, TextSequence
 from pyhmmer.plan7 import HMMFile
 from typing import List
 
@@ -17,6 +17,8 @@ from architecture.tasks import build_architecture, build_annotation
 from taxonomy.tasks import build_taxonomy_tree, build_taxonomy_distribution_graph
 from .tasks import run_search
 from .models import HmmerJob, Database
+from .schema import ValidationErrorSchema
+
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +39,7 @@ class DatabaseResponseSchema(ModelSchema):
 
 @router.get("/databases", response=List[DatabaseResponseSchema], tags=["search"])
 def get_databases(request):
-    return Database.objects.all()
+    return Database.objects.all().order_by("order")
 
 
 class JobDetailsResponseSchema(ModelSchema):
@@ -84,13 +86,26 @@ class SearchRequestSchema(ModelSchema):
         algo = info.context["request"].get_full_path_info().split("/")[-1]
 
         if algo == HmmerJob.AlgoChoices.PHMMER or algo == HmmerJob.AlgoChoices.HMMSCAN:
-            try:
-                with SequenceFile(io.BytesIO(value.encode())) as fh:
-                    fh.guess_alphabet()
+            value_with_header = value if value.startswith(">") else f">Unnamed query\n{value}"
 
-                return value
+            try:
+                with SequenceFile(io.BytesIO(value_with_header.encode()), format="fasta") as fh:
+                    fh.guess_alphabet()
             except ValueError:
                 raise PydanticCustomError("invalid_input", "Sequence is not valid")
+
+            with SequenceFile(io.BytesIO(value_with_header.encode()), format="fasta") as fh:
+                block = fh.read_block()
+
+                if len(block) > 1:
+                    raise PydanticCustomError("invalid_input", "Only one sequence is allowed")
+
+                input_sequence: TextSequence = block[0]
+
+                if not input_sequence.sequence.strip():
+                    raise PydanticCustomError("invalid_input", "Sequence is not valid")
+
+            return value_with_header
 
         if algo == HmmerJob.AlgoChoices.HMMSEARCH:
             try:
@@ -102,6 +117,16 @@ class SearchRequestSchema(ModelSchema):
 
             if is_valid_hmm:
                 return value
+
+            try:
+                with SequenceFile(io.BytesIO(value.encode()), format="fasta") as fh:
+                    block = fh.read_block()
+                    is_fasta = True
+            except ValueError:
+                is_fasta = False
+
+            if is_fasta:
+                raise PydanticCustomError("invalid_input", "Invalid input")
 
             try:
                 with MSAFile(io.BytesIO(value.encode())) as fh:
@@ -138,7 +163,7 @@ class SearchResponseSchema(Schema):
     id: UUID4
 
 
-@router.post("{algo}", response=SearchResponseSchema, tags=["search"])
+@router.post("{algo}", response={200: SearchResponseSchema, 422: ValidationErrorSchema}, tags=["search"])
 def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequestSchema):
     job = HmmerJob(**body.dict(), algo=algo)
 

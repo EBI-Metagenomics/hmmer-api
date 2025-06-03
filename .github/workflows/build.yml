@@ -1,4 +1,4 @@
-name: Build and push the latest api
+name: Build and push the api
 
 on:
     push:
@@ -12,29 +12,26 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v3
 
-      - name: Set up environment variables
+      - name: Build Docker tags
+        id: build-tags
         run: |
           if [[ $GITHUB_REF == 'refs/heads/main' ]]; then
-            echo "ENVIRONMENT=production" >> $GITHUB_ENV
-          else
-            echo "ENVIRONMENT=development" >> $GITHUB_ENV
+            TAGS="quay.io/microbiome-informatics/hmmer-api:production-latest"
           fi
+
+          if [[ $GITHUB_REF == 'refs/heads/development' ]]; then
+            TAGS="quay.io/microbiome-informatics/hmmer-api:development-latest"
+          fi
+
+          if [[ $GITHUB_REF == refs/tags/* ]]; then
+            TAG_NAME=${GITHUB_REF#refs/tags/}
+            TAGS="quay.io/microbiome-informatics/hmmer-api:${TAG_NAME}"
+          fi
+
+          echo "tags=$TAGS" >> $GITHUB_OUTPUT
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-
-      - name: Build Docker Image
-        uses: docker/build-push-action@v5
-        with:
-            context: .
-            file: ./Dockerfile
-            load: true
-            push: false
-            tags: |
-              quay.io/microbiome-informatics/hmmer-api:${{ env.ENVIRONMENT }}-${{ github.sha }}
-              quay.io/microbiome-informatics/hmmer-api:${{ env.ENVIRONMENT  }}-latest
-            cache-from: type=gha
-            cache-to: type=gha,mode=max
 
       - name: Login to Quay.io
         uses: docker/login-action@v3
@@ -43,5 +40,10 @@ jobs:
             username: ${{ secrets.QUAY_USERNAME }}
             password: ${{ secrets.QUAY_PASSWORD }}
 
-      - name: Push
-        run: docker push quay.io/microbiome-informatics/hmmer-api --all-tags
+      - name: Build Docker Image
+        uses: docker/build-push-action@v6
+        with:
+            push: true
+            tags: ${{ steps.build-tags.outputs.tags }}
+            cache-from: type=gha
+            cache-to: type=gha,mode=max
