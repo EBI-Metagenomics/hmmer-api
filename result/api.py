@@ -6,7 +6,8 @@ from celery.states import SUCCESS, PENDING
 from django.conf import settings
 from django.shortcuts import get_object_or_404
 from ninja import Router, Schema, Query, Field
-from typing import List, Optional
+from typing import List, Optional, Dict, Annotated, Any
+from pydantic import UUID4, Discriminator, Tag
 
 from search.models import HmmerJob
 from .models import Result, P7Domain, post_process_pfam
@@ -30,6 +31,13 @@ class ResultResponseSchema(Schema):
     page_count: Optional[int] = Field(default=None)
 
 
+class JackhmmerResponseSchema(Schema):
+    id: UUID4
+    status: str
+    iteration: int
+    convergence_stats: Optional[Dict[str, int]]
+
+
 class AlignmentQuerySchema(Schema):
     index: int = Field(default=0, ge=0)
 
@@ -39,9 +47,35 @@ class AlignmentResponseSchema(Schema):
     domains: Optional[List[P7Domain]]
 
 
-@router.get("/{uuid:id}", response=ResultResponseSchema, tags=["result"])
+def get_discriminator_value(v: Any):
+    if isinstance(v, list):
+        return "jackhmmer"
+
+    return "other"
+
+
+ResponseSchema = Annotated[
+    (Annotated[ResultResponseSchema, Tag("other")] | Annotated[List[JackhmmerResponseSchema], Tag("jackhmmer")]),
+    Discriminator(get_discriminator_value),
+]
+
+
+@router.get("/{uuid:id}", response=ResponseSchema, tags=["result"])
 def get_result(request, id: str, query: Query[ResultQuerySchema]):
     job = get_object_or_404(HmmerJob, id=id)
+
+    if job.algo == HmmerJob.AlgoChoices.JACKHMMER and job.iteration == 0:
+        descendants = job.get_descendants()
+
+        return [
+            {
+                "id": descendant.id,
+                "status": descendant.task.status if descendant.task is not None else PENDING,
+                "iteration": descendant.iteration,
+                "convergence_stats": descendant.convergence_stats,
+            }
+            for descendant in descendants
+        ]
 
     try:
         status = job.task.status
@@ -56,6 +90,12 @@ def get_result(request, id: str, query: Query[ResultQuerySchema]):
     except KeyError:
         raise ValueError(f"Database {job.database.id} not found in settings")
 
+    if job.algo == HmmerJob.AlgoChoices.JACKHMMER and job.iteration > 1:
+        parent_job = job.get_parent()
+        previous_result_file = parent_job.result_file
+    else:
+        previous_result_file = None
+
     result, total_count = Result.from_file(
         json.loads(job.task.result),
         start=(query.page - 1) * query.page_size,
@@ -65,6 +105,8 @@ def get_result(request, id: str, query: Query[ResultQuerySchema]):
         with_domains=query.with_domains or job.algo == HmmerJob.AlgoChoices.HMMSCAN,
         architecture=query.architecture,
         algo=job.algo,
+        id=id,
+        previous_result_file=previous_result_file
     )
 
     if job.algo == HmmerJob.AlgoChoices.HMMSCAN:

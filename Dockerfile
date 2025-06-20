@@ -14,6 +14,7 @@ ADD . /app
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
+
 FROM python:3.13-bookworm
 
 # This is to enable NFS share access
@@ -32,9 +33,56 @@ RUN addgroup --gid "$GID" "$USER" \
 
 COPY --from=builder --chown=app:app /app /app
 
-ENV PATH="/app/.venv/bin:$PATH"
+ENV LD_LIBRARY_PATH=/usr/local/lib
+ENV CFLAGS="-fPIC"
+
+# setup HMMER library
+ARG HMMER_REPO=https://github.com/EBI-Metagenomics/hmmer
+ARG HMMER_BRANCH=hmmpgmd2msa-fix
+ARG EASEL_REPO=https://github.com/EddyRivasLab/easel
+ARG EASEL_BRANCH=master
+
+WORKDIR /opt
+RUN git clone -b ${HMMER_BRANCH} ${HMMER_REPO}
+WORKDIR /opt/hmmer
+RUN git clone -b ${EASEL_BRANCH} ${EASEL_REPO}
+
+RUN autoconf && ./configure
+RUN make -j8
+RUN gcc -g -fPIC -shared \
+  -o /usr/local/lib/libhmmer.so \
+  $(find src -maxdepth 1 -name '*.o' \
+    ! -name 'alimask.o' \
+    ! -name 'hmmconvert.o' \
+    ! -name 'hmmalign.o' \
+    ! -name 'hmmc2.o' \
+    ! -name 'hmmpgmd.o' \
+    ! -name 'hmmemit.o' \
+    ! -name 'hmmfetch.o' \
+    ! -name 'hmmlogo.o' \
+    ! -name 'hmmerfm-exactmatch.o' \
+    ! -name 'hmmpgmd_shard.o' \
+    ! -name 'hmmpress.o' \
+    ! -name 'hmmbuild.o' \
+    ! -name 'hmmscan.o' \
+    ! -name 'hmmsim.o' \
+    ! -name 'hmmsearch.o' \
+    ! -name 'hmmstat.o' \
+    ! -name 'makehmmerdb.o' \
+    ! -name 'nhmmscan.o' \
+    ! -name 'jackhmmer.o' \
+    ! -name 'nhmmer.o' \
+    ! -name 'phmmer.o') \
+  src/impl/*.o \
+  easel/*.o \
+  libdivsufsort/*.o \
+  -lpthread -lm
+
+RUN ldconfig
 
 WORKDIR /app
+
+ENV PATH="/app/.venv/bin:$PATH"
 
 EXPOSE 8000
 RUN ./manage.py collectstatic --noinput

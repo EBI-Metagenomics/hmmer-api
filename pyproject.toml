@@ -1,3 +1,7 @@
+[build-system]
+requires = ["setuptools>=80.9.0", "wheel", "cython>=3.1.1"]
+build-backend = "setuptools.build_meta"
+
 [project]
 name = "hmmer-api"
 version = "0.1.0"
@@ -26,6 +30,7 @@ dependencies = [
     "construct-typing>=0.6.2",
     "django-prometheus>=2.3.1",
     "gevent>=25.4.2",
+    "cython>=3.1.1",
 ]
 
 [dependency-groups]
@@ -37,3 +42,10 @@ dev = [
 
 [tool.black]
 line-length = 120
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["myproject*", "hmmer_wrapper*"]
+
+[tool.setuptools.package-data]
+hmmer_wrapper = ["*.c", "*.h"]

@@ -46,6 +46,9 @@ class HmmerSettings(BaseSettings):
     results_storage_location: str = f"{BASE_DIR / 'results'}"
     downloads_storage_location: str = f"{BASE_DIR / 'downloads'}"
 
+    jackhmmer_max_iterations: int = 9
+    jackhmmer_max_batch_iterations: int = 5
+
     model_config = SettingsConfigDict(env_prefix="HMMER_")
 
 

@@ -1,24 +1,23 @@
 import logging
 import io
+import uuid
 
-from celery import chain, group
 from django_celery_results.models import TaskResult
+from django.conf import settings
 from django.http import HttpRequest, HttpResponse
 from django.db import transaction
 from django.shortcuts import get_object_or_404
 from ninja import Router, ModelSchema, Schema, Field
-from pydantic import UUID4, ValidationInfo, field_validator
+from ninja.errors import HttpError
+from pydantic import UUID4, ValidationInfo, model_validator, field_validator
 from pydantic_core import PydanticCustomError
 from pyhmmer.easel import SequenceFile, MSAFile, TextSequence
 from pyhmmer.plan7 import HMMFile
-from typing import List
+from typing import List, Optional
 
-from architecture.tasks import build_architecture, build_annotation
-from taxonomy.tasks import build_taxonomy_tree, build_taxonomy_distribution_graph
-from .tasks import run_search
 from .models import HmmerJob, Database
 from .schema import ValidationErrorSchema
-
+from .tasks import schedule_next_iteration
 
 logger = logging.getLogger(__name__)
 
@@ -43,8 +42,14 @@ def get_databases(request):
 
 
 class JobDetailsResponseSchema(ModelSchema):
-    task: TaskResultSchema
+    task: Optional[TaskResultSchema]
     database: DatabaseResponseSchema
+    iteration: Optional[int]
+    next_job_id: Optional[UUID4]
+    previous_job_id: Optional[UUID4]
+    parent_job_id: Optional[UUID4]
+    include: List[int]
+    exclude: List[int]
 
     class Meta:
         model = HmmerJob
@@ -56,6 +61,9 @@ class JobDetailsResponseSchema(ModelSchema):
             "annotation_task",
             "with_taxonomy",
             "with_architecture",
+            "parent",
+            "include",
+            "exclude",
         ]
 
 
@@ -78,85 +86,143 @@ def get_job_query(request, id: str):
 
 
 class SearchRequestSchema(ModelSchema):
-    database_id: str = Field(alias="database")
+    input: str | UUID4
+    input_type: Optional[str] = Field(default=None)
+    database_id: Optional[str] = Field(default=None, alias="database")
+    include: Optional[List[int]] = Field(default=[])
+    exclude: Optional[List[int]] = Field(default=[])
 
-    @field_validator("input", mode="after", check_fields=False)
-    @classmethod
-    def check_input(cls, value: str, info: ValidationInfo):
+    @model_validator(mode="after")
+    def validate_input(self, info: ValidationInfo):
         algo = info.context["request"].get_full_path_info().split("/")[-1]
 
         if algo == HmmerJob.AlgoChoices.PHMMER or algo == HmmerJob.AlgoChoices.HMMSCAN:
-            value_with_header = value if value.startswith(">") else f">Unnamed query\n{value}"
+            self.input = self.validate_sequence(self.input)
+            self.input_type = HmmerJob.InputChoices.SEQUENCE
 
-            try:
-                with SequenceFile(io.BytesIO(value_with_header.encode()), format="fasta") as fh:
-                    fh.guess_alphabet()
-            except ValueError:
-                raise PydanticCustomError("invalid_input", "Sequence is not valid")
-
-            with SequenceFile(io.BytesIO(value_with_header.encode()), format="fasta") as fh:
-                block = fh.read_block()
-
-                if len(block) > 1:
-                    raise PydanticCustomError("invalid_input", "Only one sequence is allowed")
-
-                input_sequence: TextSequence = block[0]
-
-                if not input_sequence.sequence.strip():
-                    raise PydanticCustomError("invalid_input", "Sequence is not valid")
-
-            return value_with_header
+            return self
 
         if algo == HmmerJob.AlgoChoices.HMMSEARCH:
-            try:
-                with HMMFile(io.BytesIO(value.encode())) as fh:
-                    fh.is_pressed()
-                is_valid_hmm = True
-            except ValueError:
-                is_valid_hmm = False
+            validators = [
+                (self.validate_hmm, HmmerJob.InputChoices.HMM),
+                (self.validate_msa, HmmerJob.InputChoices.MSA),
+            ]
 
-            if is_valid_hmm:
-                return value
+            for validator, input_type in validators:
+                try:
+                    self.input = validator(self.input)
+                    self.input_type = input_type
 
-            try:
-                with SequenceFile(io.BytesIO(value.encode()), format="fasta") as fh:
-                    block = fh.read_block()
-                    is_fasta = True
-            except ValueError:
-                is_fasta = False
+                    return self
+                except PydanticCustomError:
+                    continue
 
-            if is_fasta:
-                raise PydanticCustomError("invalid_input", "Invalid input")
+            raise PydanticCustomError("invalid_input", "Invalid HMM/MSA")
 
-            try:
-                with MSAFile(io.BytesIO(value.encode())) as fh:
-                    fh.guess_alphabet()
-                is_valid_msa = True
-            except ValueError:
-                is_valid_msa = False
+        if algo == HmmerJob.AlgoChoices.JACKHMMER:
+            validators = [
+                (self.validate_uuid, HmmerJob.InputChoices.UUID),
+                (self.validate_sequence, HmmerJob.InputChoices.SEQUENCE),
+                (self.validate_hmm, HmmerJob.InputChoices.HMM),
+                (self.validate_msa, HmmerJob.InputChoices.MSA),
+            ]
 
-            if is_valid_msa:
-                return value
+            for validator, input_type in validators:
+                try:
+                    self.input = validator(self.input)
+                    self.input_type = input_type
 
-            if not is_valid_msa:
-                raise PydanticCustomError("invalid_input", "Alignment is not valid")
+                    return self
+                except PydanticCustomError:
+                    continue
 
-            if not is_valid_hmm:
-                raise PydanticCustomError("invalid_input", "HMM is not valid")
+            raise PydanticCustomError("invalid_input", "Invalid jackhmmer input")
+    
+    @field_validator("iterations", mode="before", check_fields=False)
+    @classmethod
+    def validate_iterations(cls, value: int | None, info: ValidationInfo):
+        if value is not None and (value < 0 or value > settings.HMMER.jackhmmer_max_batch_iterations):
+            raise HttpError(400, "Number of iterations for jackhmmer is not valid")
+
+        return value
+
+    @classmethod
+    def validate_sequence(cls, input: str):
+        input_with_header = input if input.startswith(">") else f">Unnamed query\n{input}"
+
+        try:
+            with SequenceFile(io.BytesIO(input_with_header.encode()), format="fasta") as fh:
+                fh.guess_alphabet()
+        except ValueError:
+            raise PydanticCustomError("invalid_input", "Sequence is not valid")
+
+        with SequenceFile(io.BytesIO(input_with_header.encode()), format="fasta") as fh:
+            block = fh.read_block()
+
+            if len(block) > 1:
+                raise PydanticCustomError("invalid_input", "Only one sequence is allowed")
+
+            input_sequence: TextSequence = block[0]
+
+            if not input_sequence.sequence.strip():
+                raise PydanticCustomError("invalid_input", "Sequence is not valid")
+
+        return input_with_header
+
+    @classmethod
+    def validate_hmm(cls, input: str):
+        try:
+            with HMMFile(io.BytesIO(input.encode())) as fh:
+                fh.is_pressed()
+            return input
+        except ValueError:
+            raise PydanticCustomError("invalid_input", "HMM is not valid")
+
+    @classmethod
+    def validate_msa(cls, input: str):
+        try:
+            with MSAFile(io.BytesIO(input.encode())) as fh:
+                fh.guess_alphabet()
+            return input
+        except ValueError:
+            raise PydanticCustomError("invalid_input", "MSA is not valid")
+
+    @classmethod
+    def validate_uuid(cls, input: str):
+        try:
+            if uuid.UUID(input).version == 4:
+                return input
+        except (ValueError, AttributeError):
+            raise PydanticCustomError("invalid_input", "UUID is not valid")
+
+    @model_validator(mode="after")
+    def validate_database_id_requirement(self):
+        if self.input_type != HmmerJob.InputChoices.UUID and self.database_id is None:
+            raise PydanticCustomError("missing_database_id", "database is required when input is not a UUID4")
+
+        return self
 
     class Meta:
         model = HmmerJob
-        exclude = [
-            "id",
-            "database",
-            "task",
-            "taxonomy_distribution_task",
-            "taxonomy_tree_task",
-            "taxonomy_distribution_graph_task",
-            "architecture_task",
-            "annotation_task",
-            "algo",
+        fields = [
+            "threshold",
+            "E",
+            "domE",
+            "T",
+            "domT",
+            "incE",
+            "incdomE",
+            "incT",
+            "incdomT",
+            "popen",
+            "pextend",
+            "mx",
+            "with_taxonomy",
+            "with_architecture",
+            "iterations",
+            "exclude_all",
         ]
+        fields_optional = "__all__"
 
 
 class SearchResponseSchema(Schema):
@@ -165,31 +231,32 @@ class SearchResponseSchema(Schema):
 
 @router.post("{algo}", response={200: SearchResponseSchema, 422: ValidationErrorSchema}, tags=["search"])
 def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequestSchema):
-    job = HmmerJob(**body.dict(), algo=algo)
+    if algo == HmmerJob.AlgoChoices.JACKHMMER and body.input_type == HmmerJob.InputChoices.UUID:
+        job = get_object_or_404(HmmerJob.objects.select_related("database", "parent"), id=body.input)
 
-    job.clean()
-    job.save()
+        job.include = body.include
+        job.exclude = body.exclude
+        job.exclude_all = body.exclude_all
+        job.iterations = None
+        job.save(update_fields=["include", "exclude", "exclude_all", "iterations"])
 
-    request.session["job_ids"] = request.session.get("job_ids", []) + [str(job.id)]
+        schedule_next_iteration.apply(args=(job.id,))
 
-    subsequent_tasks = []
+        new_job = job.get_first_child()
 
-    if job.algo != HmmerJob.AlgoChoices.HMMSCAN and job.with_taxonomy:
-        subsequent_tasks += [
-            build_taxonomy_tree.si(job.id),
-            build_taxonomy_distribution_graph.si(job.id),
-        ]
+        if new_job is None:
+            raise HttpError(400, "Given job already converged.")
 
-    if job.algo != HmmerJob.AlgoChoices.HMMSCAN and job.with_architecture:
-        subsequent_tasks += [build_architecture.si(job.id)]
+        return {"id": new_job.id}
+    else:
+        job = HmmerJob(**body.dict(exclude_unset=True), algo=algo)
 
-    if job.algo != HmmerJob.AlgoChoices.HMMSEARCH:
-        subsequent_tasks += [build_annotation.si(job.id)]
+        job.clean()
+        job.save()
 
-    workflow = chain(
-        run_search.si(job.id),
-        group(*subsequent_tasks),
-    )
+        request.session["job_ids"] = request.session.get("job_ids", []) + [str(job.id)]
+
+    workflow = job.get_workflow()
 
     transaction.on_commit(lambda: workflow.delay())
 
@@ -197,15 +264,15 @@ def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequest
 
 
 class JobsResponseSchema(ModelSchema):
-    task: TaskResultSchema
+    task: Optional[TaskResultSchema]
 
     class Meta:
         model = HmmerJob
-        fields = ["id", "algo"]
+        fields = ["id", "algo", "date_submitted"]
 
 
 @router.get("", response=List[JobsResponseSchema], tags=["search"])
 def get_jobs(request):
     job_ids = request.session.get("job_ids", [])
 
-    return HmmerJob.objects.filter(id__in=job_ids).select_related("task").order_by("-task__date_created")
+    return HmmerJob.objects.filter(id__in=job_ids).select_related("task").order_by("-date_submitted")

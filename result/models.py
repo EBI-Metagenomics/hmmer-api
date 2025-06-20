@@ -99,6 +99,15 @@ class P7AliStringPresenceFlags(FlagsEnumBase):
     NTSEQ_PRESENT = 1 << 5
 
 
+class Restrictions(BaseModel):
+    start: Optional[int] = None
+    end: Optional[int] = None
+    with_metadata: bool = True
+    with_domains: bool = False
+    taxonomy_ids: Optional[List[int]] = (None,)
+    architecture: Optional[str] = (None,)
+
+
 class Structure(BaseModel):
     id: str
     external_link: str
@@ -279,6 +288,14 @@ class HmmdSearchStats(HmmpgmdModel):
     """Number of hits that are reportable"""
     nincluded: int = csfield(Int64ub)
     """Number of hits that are includable"""
+    ngained: Optional[int] = csfield(Computed(lambda ctx: None))
+    """Number of significant hits gained from previous iteration"""
+    nlost: Optional[int] = csfield(Computed(lambda ctx: None))
+    """Number of significant hits lost from results"""
+    ndropped: Optional[int] = csfield(Computed(lambda ctx: None))
+    """Number of significant hits that have gone below threshold"""
+    first_gained_index: Optional[int] = csfield(Computed(lambda ctx: None))
+    """Index of first hit that is new"""
     hit_offsets: Optional[List[int]] = csfield(Array(this.nhits, Int64ub))
     """An array of nhits values that define the offsets"""
     size: int = csfield(Tell)
@@ -575,6 +592,7 @@ class Result(BaseModel):
         architecture: Optional[str] = None,
         algo: Optional[str] = None,
         id: Optional[str] = None,
+        previous_result_file: Optional[str] = None,
     ) -> Tuple["Result", int]:
         stats_format = DataclassStruct(HmmdSearchStats)
         stats = stats_format.parse_file(file)
@@ -611,34 +629,31 @@ class Result(BaseModel):
 
             total_count = len(parsed.hits)
             parsed.hits = parsed.hits[start:end]
+        else:
+            start = start or 0
+            end = end or stats.nhits
 
-            return parsed, total_count
+            if start < 0:
+                start = 0
 
-        start = start or 0
-        end = end or stats.nhits
+            if end > stats.nhits:
+                end = stats.nhits
 
-        if start < 0:
-            start = 0
+            length = end - start
 
-        if end > stats.nhits:
-            end = stats.nhits
-
-        length = end - start
-
-        format = Struct(
-            "stats" / DataclassStruct(HmmdSearchStats),
-            "hits"
-            / Array(
-                length,
-                Pointer(
-                    lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
-                    DataclassStruct(P7Hit),
+            format = Struct(
+                "stats" / DataclassStruct(HmmdSearchStats),
+                "hits"
+                / Array(
+                    length,
+                    Pointer(
+                        lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
+                        DataclassStruct(P7Hit),
+                    ),
                 ),
-            ),
-        )
+            )
 
-        return (
-            format.parse_file(
+            parsed = format.parse_file(
                 file,
                 db_conf=db_conf,
                 with_domains=with_domains,
@@ -647,9 +662,89 @@ class Result(BaseModel):
                 algo=algo,
                 id=id,
                 database=db_conf.name if db_conf else None,
-            ),
-            stats.nhits,
-        )
+            )
+
+            total_count = stats.nhits
+
+        if algo == "jackhmmer":
+            if previous_result_file:
+                stats = stats_format.parse_file(previous_result_file)
+
+                format = Struct(
+                    "stats" / DataclassStruct(HmmdSearchStats),
+                    "hits"
+                    / Array(
+                        stats.nhits,
+                        Pointer(
+                            lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
+                            DataclassStruct(P7Hit),
+                        ),
+                    ),
+                )
+
+                prev_parsed = format.parse_file(
+                    previous_result_file,
+                    db_conf=db_conf,
+                    start=0,
+                    with_domains=False,
+                    with_metadata=False,
+                    database=db_conf.name if db_conf else None,
+                )
+
+                prev_included_set = {int(hit.name) for hit in prev_parsed.hits if hit.is_included}
+            else:
+                prev_included_set = set()
+
+            stats = stats_format.parse_file(file)
+
+            format = Struct(
+                "stats" / DataclassStruct(HmmdSearchStats),
+                "hits"
+                / Array(
+                    stats.nhits,
+                    Pointer(
+                        lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
+                        DataclassStruct(P7Hit),
+                    ),
+                ),
+            )
+
+            all_parsed = format.parse_file(
+                file,
+                db_conf=db_conf,
+                start=0,
+                with_domains=False,
+                with_metadata=False,
+                database=db_conf.name if db_conf else None,
+            )
+
+            included_set = {int(hit.name) for hit in all_parsed.hits if hit.is_included}
+            reported_set = {int(hit.name) for hit in all_parsed.hits if hit.is_reported}
+
+            gained_set = included_set - prev_included_set
+            dropped_set = prev_included_set & (reported_set - included_set)
+            lost_set = prev_included_set - reported_set
+
+            n_gained = len(gained_set)
+            n_dropped = len(dropped_set)
+            n_lost = len(lost_set)
+
+            for hit in all_parsed.hits:
+                hit.is_new = True if int(hit.name) in gained_set else False
+                hit.is_dropped = True if int(hit.name) in dropped_set else False
+
+            for hit in parsed.hits:
+                hit.is_new = True if int(hit.name) in gained_set else False
+                hit.is_dropped = True if int(hit.name) in dropped_set else False
+
+            first_new_hit = next((hit for hit in all_parsed.hits if hit.is_new), None)
+
+            parsed.stats.first_gained_index = first_new_hit.index if first_new_hit is not None else None
+            parsed.stats.ngained = n_gained
+            parsed.stats.ndropped = n_dropped
+            parsed.stats.nlost = n_lost
+
+        return parsed, total_count
 
     @classmethod
     def from_data(
