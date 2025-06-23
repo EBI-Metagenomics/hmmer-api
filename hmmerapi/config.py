@@ -49,6 +49,9 @@ class HmmerSettings(BaseSettings):
     jackhmmer_max_iterations: int = 9
     jackhmmer_max_batch_iterations: int = 5
 
+    retry_period_seconds: int = 30 * 60
+    max_retries: int = 6
+
     model_config = SettingsConfigDict(env_prefix="HMMER_")
 
 

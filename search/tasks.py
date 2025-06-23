@@ -51,7 +51,7 @@ def run_search(self, job_id: str):
         logger.warning(e)
         storage.delete(f"{job.id}/hits.bin")
 
-        raise self.retry(exc=e, max_retries=5, countdown=30 * 60)
+        raise self.retry(exc=e, max_retries=settings.HMMER.max_retries, countdown=settings.HMMER.retry_period_seconds)
 
     return storage.path(path)
 
