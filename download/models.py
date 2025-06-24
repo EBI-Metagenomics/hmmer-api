@@ -214,6 +214,7 @@ class MSABuildStrategy(FileBuildStrategy):
             self.file_job.job.result_file,
             self.file_job.job.input_hmm,
             self.format,
+            self.db_conf,
             include,
         )
 

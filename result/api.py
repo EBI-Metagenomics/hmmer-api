@@ -1,7 +1,6 @@
 import json
 import logging
 import math
-
 from celery.states import SUCCESS, PENDING
 from django.conf import settings
 from django.shortcuts import get_object_or_404
