@@ -347,7 +347,7 @@ class HmmerJob(AL_Node):
                     workflow.append(group(*subsequent_tasks))
 
                 workflow_chain = chain(
-                    workflow,
+                    *workflow,
                     signature("search.tasks.notify_on_job_completion", args=(self.id,), immutable=True),
                 )
 
