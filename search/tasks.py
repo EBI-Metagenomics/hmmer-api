@@ -1,13 +1,16 @@
-import logging
-from socket import gaierror
-
 import copy
+import logging
+import os
+from socket import gaierror
+from urllib.parse import urljoin
+
+from celery.states import SUCCESS, FAILURE
 from django.conf import settings
 from django_celery_results.models import TaskResult
 from django.core.files.base import ContentFile
 from django.core.files.storage import storages
 from django.db import transaction
-
+from templated_email import send_templated_mail, InlineImage
 from hmmerapi.celery import app
 from search.client import Client, HmmpgmdServerError
 from result.models import HmmdSearchStats
@@ -105,3 +108,48 @@ def schedule_next_iteration(self, job_id: str):
     workflow = next_job.get_workflow()
 
     transaction.on_commit(lambda: workflow.delay())
+
+
+@app.task(bind=True)
+def notify_on_job_completion(self, job_id: str):
+    job = HmmerJob.objects.get(id=job_id)
+
+    if job.email_address is None:
+        return
+
+    if len(job.email_address) == 0:
+        return
+
+    try:
+        if job.task is None:
+            return
+
+        if job.task.status not in {SUCCESS, FAILURE}:
+            return
+
+        template_name = f"job/{job.task.status.lower()}"
+        base = urljoin(settings.DJANGO.host_url, settings.DJANGO.base_url)
+        result_url = urljoin(base, f"results/{job.id}")
+
+        hmmer_logo_path = os.path.join(settings.BASE_DIR, 'static', 'images', 'hmmer_logo.png')
+
+        with open(hmmer_logo_path, "rb") as hmmer_logo:
+            hmmer_image = hmmer_logo.read()
+
+        inline_hmmer_image = InlineImage(filename="hmmer_logo.png", content=hmmer_image)
+
+        send_templated_mail(
+            template_name=template_name,
+            from_email="noreply@ebi.ac.uk",
+            recipient_list=[job.email_address],
+            context={
+                "job": job,
+                "result_url": result_url,
+                "hmmer_logo": inline_hmmer_image,
+            },
+        )
+    except Exception:
+        pass
+    finally:
+        job.email_address = None
+        job.save(update_fields=["email_address"])

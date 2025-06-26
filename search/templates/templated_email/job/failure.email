@@ -1,0 +1,10 @@
+{% block subject %}[HMMER] Job {{ job.id }} FAILED{% endblock %}
+{% block html %}
+    <p>Dear user,</p>
+
+    <p>Your job <b>{{ job.id }}</b> has failed.</p>
+    <p>Please try submitting your search again. If the problem persists, please <a className="vf-button vf-button--primary" href="https://www.ebi.ac.uk/about/contact/support/hmmer">contact support</a></p>
+
+    <p>Regards,<br>HMMER team</p>
+    <img src="{{ hmmer_logo }}">
+{% endblock %}

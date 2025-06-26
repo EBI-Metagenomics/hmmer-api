@@ -1,12 +1,8 @@
-[build-system]
-requires = ["setuptools>=80.9.0", "wheel", "cython>=3.1.1"]
-build-backend = "setuptools.build_meta"
-
 [project]
 name = "hmmer-api"
 version = "0.1.0"
 description = "API for the Hmmer Web Service."
-authors = ["Aleksandar Rajkovic <aleksandar@ebi.ac.uk>"]
+authors = [{ name = "Aleksandar Rajkovic", email = "aleksandar@ebi.ac.uk" }]
 readme = "README.md"
 requires-python = ">=3.13"
 dependencies = [
@@ -31,6 +27,9 @@ dependencies = [
     "django-prometheus>=2.3.1",
     "gevent>=25.4.2",
     "cython>=3.1.1",
+    "django-templated-email>=3.0.1",
+    "html2text>=2025.4.15",
+    "email-validator>=2.2.0",
 ]
 
 [dependency-groups]
@@ -42,10 +41,3 @@ dev = [
 
 [tool.black]
 line-length = 120
-
-[tool.setuptools.packages.find]
-where = ["."]
-include = ["myproject*", "hmmer_wrapper*"]
-
-[tool.setuptools.package-data]
-hmmer_wrapper = ["*.c", "*.h"]

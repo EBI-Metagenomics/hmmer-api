@@ -10,6 +10,7 @@ class DjangoSettings(BaseSettings):
     secret_key: Optional[str] = "django-insecure-+es_-5afm=y4du+nt2ypvwiaxwo6iuf8!^qjq*jbkf^(46^&3r"
     csrf_trusted_origins: List[str] = []
     base_url: str = ""  # for EBI use 'Tools/hmmer/' (no leading slash)
+    host_url: str = "http://localhost:5173"
     build_https_download_urls: bool = False
 
     database_url: Optional[str] = None
@@ -20,6 +21,12 @@ class DjangoSettings(BaseSettings):
     database_password: str = "dummypassword"
     database_host: str = "localhost"
     database_port: int = 5432
+
+    email_host: Optional[str] = None
+    email_port: Optional[int] = None
+    email_host_user: Optional[str] = None
+    email_host_password: Optional[str] = None
+    email_use_tls: Optional[bool] = None
 
     debug: Optional[bool] = False
 

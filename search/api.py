@@ -9,7 +9,7 @@ from django.db import transaction
 from django.shortcuts import get_object_or_404
 from ninja import Router, ModelSchema, Schema, Field
 from ninja.errors import HttpError
-from pydantic import UUID4, ValidationInfo, model_validator, field_validator
+from pydantic import UUID4, EmailStr, ValidationInfo, model_validator, field_validator
 from pydantic_core import PydanticCustomError
 from pyhmmer.easel import SequenceFile, MSAFile, TextSequence
 from pyhmmer.plan7 import HMMFile
@@ -137,7 +137,7 @@ class SearchRequestSchema(ModelSchema):
                     continue
 
             raise PydanticCustomError("invalid_input", "Invalid jackhmmer input")
-    
+
     @field_validator("iterations", mode="before", check_fields=False)
     @classmethod
     def validate_iterations(cls, value: int | None, info: ValidationInfo):
@@ -229,7 +229,7 @@ class SearchResponseSchema(Schema):
     id: UUID4
 
 
-@router.post("{algo}", response={200: SearchResponseSchema, 422: ValidationErrorSchema}, tags=["search"])
+@router.post("/{algo}", response={200: SearchResponseSchema, 422: ValidationErrorSchema}, tags=["search"])
 def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequestSchema):
     if algo == HmmerJob.AlgoChoices.JACKHMMER and body.input_type == HmmerJob.InputChoices.UUID:
         job = get_object_or_404(HmmerJob.objects.select_related("database", "parent"), id=body.input)
@@ -261,6 +261,23 @@ def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequest
     transaction.on_commit(lambda: workflow.delay())
 
     return {"id": job.id}
+
+
+class SearchPatchSchema(Schema):
+    email_address: Optional[EmailStr] = None
+
+
+@router.patch("/{uuid:id}", response={204: None, 422: ValidationErrorSchema}, tags=["search"])
+def update_search(request: HttpRequest, id: str, body: SearchPatchSchema):
+    job = HmmerJob.objects.get(id=id)
+    updated_fields = body.dict(exclude_unset=True)
+
+    for attr, value in updated_fields.items():
+        setattr(job, attr, value)
+
+    job.save()
+
+    return 204, None
 
 
 class JobsResponseSchema(ModelSchema):

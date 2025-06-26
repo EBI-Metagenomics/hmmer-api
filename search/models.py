@@ -97,6 +97,9 @@ class HmmerJob(AL_Node):
 
     date_submitted = models.DateTimeField(auto_now_add=True, null=True)
     number_of_hits = models.IntegerField(null=True, blank=True)
+
+    email_address = models.EmailField(null=True, blank=True, max_length=254)
+
     parent = models.ForeignKey("self", related_name="children_set", null=True, db_index=True, on_delete=models.CASCADE)
     node_order_by = ["id"]
 
@@ -320,9 +323,7 @@ class HmmerJob(AL_Node):
             if self.iteration == 0:
                 return signature("search.tasks.schedule_next_iteration", args=(self.id,), immutable=True)
             else:
-                workflow = [
-                    signature("search.tasks.run_search", args=(self.id,), immutable=True),
-                ]
+                workflow = [signature("search.tasks.run_search", args=(self.id,), immutable=True)]
 
                 subsequent_tasks = []
 
@@ -345,7 +346,16 @@ class HmmerJob(AL_Node):
                 if subsequent_tasks:
                     workflow.append(group(*subsequent_tasks))
 
-                return chain(workflow)
+                workflow_chain = chain(
+                    workflow,
+                    signature("search.tasks.notify_on_job_completion", args=(self.id,), immutable=True),
+                )
+
+                workflow_chain.link_error(
+                    signature("search.tasks.notify_on_job_completion", args=(self.id,), immutable=True)
+                )
+
+                return workflow_chain
 
         else:
             subsequent_tasks = []
@@ -364,10 +374,17 @@ class HmmerJob(AL_Node):
             if self.algo != self.AlgoChoices.HMMSEARCH:
                 subsequent_tasks += [signature("architecture.tasks.build_annotation", args=(self.id,), immutable=True)]
 
-            return chain(
+            workflow_chain = chain(
                 signature("search.tasks.run_search", args=(self.id,), immutable=True),
                 group(*subsequent_tasks),
+                signature("search.tasks.notify_on_job_completion", args=(self.id,), immutable=True),
             )
+
+            workflow_chain.link_error(
+                signature("search.tasks.notify_on_job_completion", args=(self.id,), immutable=True)
+            )
+
+            return workflow_chain
 
 
 @receiver(pre_delete, sender=HmmerJob)

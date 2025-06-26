@@ -193,6 +193,16 @@ LOGGING = {
     },
 }
 
+if _django_config.email_host is None:
+    EMAIL_BACKEND = "django.core.mail.backends.console.EmailBackend"
+else:
+    EMAIL_BACKEND = "django.core.mail.backends.smtp.EmailBackend"
+    EMAIL_HOST = _django_config.email_host
+    EMAIL_PORT = _django_config.email_port
+    EMAIL_HOST_USER = _django_config.email_host_user
+    EMAIL_HOST_PASSWORD = _django_config.email_host_password
+    EMAIL_USE_TLS = _django_config.email_use_tls
+
 BASE_URL = _django_config.base_url
 BUILD_HTTPS_DOWNLOAD_URLS = _django_config.build_https_download_urls
 CSRF_TRUSTED_ORIGINS = _django_config.csrf_trusted_origins
@@ -212,3 +222,4 @@ CELERY_RESULT_EXTENDED = True
 CELERY_TASK_TRACK_STARTED = True
 
 HMMER = _hmmer_config
+DJANGO = _django_config
