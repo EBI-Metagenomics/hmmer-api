@@ -3,7 +3,7 @@ import logging
 import os
 from socket import gaierror
 from urllib.parse import urljoin
-
+import time
 from celery.states import SUCCESS, FAILURE
 from django.conf import settings
 from django_celery_results.models import TaskResult
@@ -38,6 +38,8 @@ def run_search(self, job_id: str):
     path = storage.save(f"{job.id}/hits.bin", ContentFile(b""))
 
     try:
+        # TODO: remove after testing
+        time.sleep(4*60)
         with Client(address=db_config.host, port=db_config.port) as client:
             client.search(
                 db_cmd=job.hmmpgmd_db,
