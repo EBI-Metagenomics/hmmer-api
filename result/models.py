@@ -19,6 +19,7 @@ from construct import (
     If,
     Tell,
 )
+
 from construct_typed import DataclassMixin, DataclassStruct, csfield, FlagsEnumBase, EnumBase
 from pydantic import BaseModel, Field, model_serializer, AliasPath, field_validator, ValidationInfo, model_validator
 from pydantic.dataclasses import dataclass
@@ -484,7 +485,7 @@ class P7Domain(HmmpgmdModel):
 
 @dataclass
 class P7Hit(HmmpgmdModel):
-    index: int = csfield(Computed(lambda ctx: ctx._params.start + ctx._index))
+    index: int = csfield(If(this._parsing, Computed(lambda ctx: ctx._params.start + ctx._index)))
     """Index of the hit (0-based)"""
     size: int = csfield(Int32ub)
     """length (in bytes) of the serialized P7_HIT object"""
@@ -520,13 +521,13 @@ class P7Hit(HmmpgmdModel):
     """Total number of domains identified in this sequence"""
     flags: Any = csfield(FlagsEnum(Int32ub, P7HitFlags))
     """p7_IS_REPORTED | p7_IS_INCLUDED | p7_IS_NEW | p7_IS_DROPPED"""
-    is_reported: bool = csfield(Computed(this.flags.IS_REPORTED))
+    is_reported: bool = csfield(If(this._parsing, Computed(this.flags.IS_REPORTED)))
     """TRUE if hit meets reporting thresholds"""
-    is_included: bool = csfield(Computed(this.flags.IS_INCLUDED))
+    is_included: bool = csfield(If(this._parsing, Computed(this.flags.IS_INCLUDED)))
     """TRUE if hit meets inclusion thresholds"""
-    is_new: bool = csfield(Computed(this.flags.IS_NEW))
+    is_new: bool = csfield(If(this._parsing, Computed(this.flags.IS_NEW)))
     """TRUE if hit is new"""
-    is_dropped: bool = csfield(Computed(this.flags.IS_DROPPED))
+    is_dropped: bool = csfield(If(this._parsing, Computed(this.flags.IS_DROPPED)))
     """TRUE if hit is dropped"""
     nreported: int = csfield(Int32ub)
     """Number of domains satisfying reporting thresholding"""
@@ -550,7 +551,9 @@ class P7Hit(HmmpgmdModel):
     """E-value of the hit"""
     metadata: Optional[Dict[str, Any]] = csfield(
         If(
-            lambda ctx: ctx._params.get("with_metadata", True) and ctx._params.db_conf.metadata_model_class is not None,
+            lambda ctx: ctx._parsing
+            and ctx._params.get("with_metadata", True)
+            and ctx._params.db_conf.metadata_model_class is not None,
             Computed(
                 lambda ctx: ctx._params.db_conf.metadata_model_class.model_validate_json(
                     ctx.desc, context={"db_conf": ctx._params.db_conf}
@@ -560,7 +563,10 @@ class P7Hit(HmmpgmdModel):
     )
     """Metadata of the hit"""
     domains: Optional[List[P7Domain]] = csfield(
-        If(lambda ctx: ctx._params.get("with_domains", False), Array(this.ndom, DataclassStruct(P7Domain)))
+        If(
+            lambda ctx: ctx._building or ctx._params.get("with_domains", False),
+            Array(this.ndom, DataclassStruct(P7Domain)),
+        )
     )
     """Ndom serialized P7_DOMAIN structures"""
 
@@ -666,84 +672,6 @@ class Result(BaseModel):
 
             total_count = stats.nhits
 
-        if algo == "jackhmmer":
-            if previous_result_file:
-                stats = stats_format.parse_file(previous_result_file)
-
-                format = Struct(
-                    "stats" / DataclassStruct(HmmdSearchStats),
-                    "hits"
-                    / Array(
-                        stats.nhits,
-                        Pointer(
-                            lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
-                            DataclassStruct(P7Hit),
-                        ),
-                    ),
-                )
-
-                prev_parsed = format.parse_file(
-                    previous_result_file,
-                    db_conf=db_conf,
-                    start=0,
-                    with_domains=False,
-                    with_metadata=False,
-                    database=db_conf.name if db_conf else None,
-                )
-
-                prev_included_set = {int(hit.name) for hit in prev_parsed.hits if hit.is_included}
-            else:
-                prev_included_set = set()
-
-            stats = stats_format.parse_file(file)
-
-            format = Struct(
-                "stats" / DataclassStruct(HmmdSearchStats),
-                "hits"
-                / Array(
-                    stats.nhits,
-                    Pointer(
-                        lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
-                        DataclassStruct(P7Hit),
-                    ),
-                ),
-            )
-
-            all_parsed = format.parse_file(
-                file,
-                db_conf=db_conf,
-                start=0,
-                with_domains=False,
-                with_metadata=False,
-                database=db_conf.name if db_conf else None,
-            )
-
-            included_set = {int(hit.name) for hit in all_parsed.hits if hit.is_included}
-            reported_set = {int(hit.name) for hit in all_parsed.hits if hit.is_reported}
-
-            gained_set = included_set - prev_included_set
-            dropped_set = prev_included_set & (reported_set - included_set)
-            lost_set = prev_included_set - reported_set
-
-            n_gained = len(gained_set)
-            n_dropped = len(dropped_set)
-            n_lost = len(lost_set)
-
-            for hit in all_parsed.hits:
-                hit.is_new = True if int(hit.name) in gained_set else False
-                hit.is_dropped = True if int(hit.name) in dropped_set else False
-
-            for hit in parsed.hits:
-                hit.is_new = True if int(hit.name) in gained_set else False
-                hit.is_dropped = True if int(hit.name) in dropped_set else False
-
-            first_new_hit = next((hit for hit in all_parsed.hits if hit.is_new), None)
-
-            parsed.stats.first_gained_index = first_new_hit.index if first_new_hit is not None else None
-            parsed.stats.ngained = n_gained
-            parsed.stats.ndropped = n_dropped
-            parsed.stats.nlost = n_lost
-
         return parsed, total_count
 
     @classmethod
@@ -834,6 +762,25 @@ class Result(BaseModel):
             ),
             stats.nhits,
         )
+
+    @classmethod
+    def to_data(cls, result: "Result"):
+        if result.hits[0].domains is None:
+            raise ValueError("Cannot build results without domains")
+
+        format = Struct(
+            "stats" / DataclassStruct(HmmdSearchStats),
+            "hits" / Array(result.stats.nhits, DataclassStruct(P7Hit)),
+        )
+
+        return format.build(result)
+
+    @classmethod
+    def to_file(cls, result: "Result", file: os.PathLike):
+        data = cls.to_data(result)
+
+        with open(file, mode="wb") as fh:
+            fh.write(data)
 
 
 def post_process_pfam(result: Result):

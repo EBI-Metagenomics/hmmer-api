@@ -1,4 +1,3 @@
-import json
 import logging
 from django.conf import settings
 from django.core.files.base import ContentFile
@@ -27,7 +26,7 @@ def build_taxonomy_tree(self, job_id: str):
     except KeyError:
         raise ValueError(f"Database {job.database.id} not found in settings")
 
-    result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config)
+    result, _ = Result.from_file(job.result_path, db_conf=db_config)
 
     tree = TaxonomyTree.from_result(result)
 
@@ -54,7 +53,7 @@ def build_taxonomy_distribution_graph(self, job_id: str):
     except KeyError:
         raise ValueError(f"Database {job.database.id} not found in settings")
 
-    result, _ = Result.from_file(json.loads(job.task.result), db_conf=db_config)
+    result, _ = Result.from_file(job.result_path, db_conf=db_config)
 
     distribution_graph = TaxonomyDistributionGraph.from_result(result)
 

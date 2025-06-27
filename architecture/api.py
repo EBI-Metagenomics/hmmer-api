@@ -142,7 +142,7 @@ def get_all_architectures(request, id: str, accessions: str, query: Query[Archit
     except KeyError:
         raise ValueError(f"Database {job.database.id} not found in settings")
 
-    result, hit_count = Result.from_file(json.loads(job.task.result), db_conf=db_config, architecture=accessions)
+    result, hit_count = Result.from_file(job.result_path, db_conf=db_config, architecture=accessions)
 
     start = (query.page - 1) * query.page_size
     end = query.page * query.page_size

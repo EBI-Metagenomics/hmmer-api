@@ -2,7 +2,18 @@ import os
 import io
 import re
 from enum import IntEnum
-from ctypes import CDLL, byref, c_char_p, c_void_p, c_int, Structure, POINTER, c_double, c_int64, create_string_buffer
+from ctypes import (
+    CDLL,
+    byref,
+    c_char_p,
+    c_void_p,
+    c_int,
+    Structure,
+    POINTER,
+    c_double,
+    c_int64,
+    create_string_buffer,
+)
 from ctypes.util import find_library
 from tempfile import NamedTemporaryFile
 from typing import List, Type, Optional
@@ -57,7 +68,6 @@ class ESL_MSA(Structure):
 
 
 ESL_MSA_p = Type[POINTER(ESL_MSA)]
-
 
 metadata_regex = re.compile(r"\[subseq\sfrom\]\s(.+)$")
 

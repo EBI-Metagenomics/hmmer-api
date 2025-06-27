@@ -97,7 +97,7 @@ class FileBuildStrategy(ABC):
             raise ValueError(f"Database {file_job.job.database.id} not found in settings")
 
         result, _ = Result.from_file(
-            file_job.job.result_file,
+            file_job.job.result_path,
             db_conf=db_config,
             with_domains=True,
             algo=file_job.job.algo,
@@ -198,7 +198,7 @@ class MSABuildStrategy(FileBuildStrategy):
     def build(self, path: os.PathLike):
         if self.file_job.filters["taxonomy_ids"] or self.file_job.filters["architecture"]:
             result, _ = Result.from_file(
-                self.file_job.job.result_file,
+                self.file_job.job.result_path,
                 with_domains=False,
                 with_metadata=True,
                 db_conf=self.db_conf,
@@ -211,7 +211,7 @@ class MSABuildStrategy(FileBuildStrategy):
             include = []
 
         msa = msa_from_hmmpgmd(
-            self.file_job.job.result_file,
+            self.file_job.job.result_path,
             self.file_job.job.input_hmm,
             self.format,
             self.db_conf,

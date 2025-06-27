@@ -2,7 +2,6 @@ import uuid
 import datetime
 import os
 import concurrent.futures
-import json
 import shutil
 import logging
 
@@ -17,7 +16,7 @@ from celery import signature, chain, group, states
 from pyhmmer.easel import SSIReader, TextSequence, TextSequenceBlock
 from treebeard.al_tree import AL_Node
 
-from result.models import Result, Restrictions
+from result.models import Result, Restrictions, P7HitFlags, HmmdSearchStats
 from utils.functions import seq_to_hmm, msa_to_hmm, hmm_from_hmmpgmd
 
 logger = logging.getLogger(__name__)
@@ -72,6 +71,7 @@ class HmmerJob(AL_Node):
     input = models.TextField(null=True, blank=True)
     input_type = models.CharField(max_length=16, choices=InputChoices.choices, default=InputChoices.SEQUENCE)
     calculated_input = models.TextField(null=True, blank=True)
+    result_path = models.FilePathField(path=settings.HMMER.results_storage_location, null=True, blank=True)
 
     threshold = models.CharField(max_length=16, choices=ThresholdChoices.choices, default=ThresholdChoices.EVALUE)
     E = models.FloatField(default=1.0, null=True, blank=True)
@@ -97,6 +97,11 @@ class HmmerJob(AL_Node):
 
     date_submitted = models.DateTimeField(auto_now_add=True, null=True)
     number_of_hits = models.IntegerField(null=True, blank=True)
+    number_of_included = models.IntegerField(null=True, blank=True)
+    number_of_gained = models.IntegerField(null=True, blank=True)
+    number_of_dropped = models.IntegerField(null=True, blank=True)
+    number_of_lost = models.IntegerField(null=True, blank=True)
+    first_gained_index = models.IntegerField(null=True, blank=True)
 
     email_address = models.EmailField(null=True, blank=True, max_length=254)
 
@@ -174,7 +179,7 @@ class HmmerJob(AL_Node):
                     query = input_job.hmmpgmd_query
                 else:
                     query = hmm_from_hmmpgmd(
-                        input_job.result_file,
+                        input_job.result_path,
                         input_job.calculated_input,
                         input_job.include,
                         input_job.exclude,
@@ -198,13 +203,6 @@ class HmmerJob(AL_Node):
             return self.calculated_input
 
     @property
-    def result_file(self) -> str | None:
-        if self.task.status != states.SUCCESS:
-            return None
-
-        return json.loads(self.task.result)
-
-    @property
     def iteration(self):
         if self.algo != self.AlgoChoices.JACKHMMER:
             return None
@@ -222,24 +220,11 @@ class HmmerJob(AL_Node):
         if self.task and self.task.status != "SUCCESS":
             return None
 
-        if self.iteration > 1:
-            previous_result_file = self.parent.result_file
-        else:
-            previous_result_file = None
-
-        result, _ = Result.from_file(
-            self.result_file,
-            algo="jackhmmer",
-            with_domains=False,
-            with_metadata=False,
-            previous_result_file=previous_result_file,
-        )
-
         return {
-            "gained": result.stats.ngained,
-            "dropped": result.stats.ndropped,
-            "lost": result.stats.nlost,
-            "total": result.stats.nincluded,
+            "gained": self.number_of_gained,
+            "dropped": self.number_of_dropped,
+            "lost": self.number_of_lost,
+            "total": self.number_of_included,
         }
 
     @property
@@ -281,16 +266,22 @@ class HmmerJob(AL_Node):
         if self.task is None or self.task.status != states.SUCCESS:
             return None
 
-        result_path = json.loads(self.task.result)
-
         try:
             db_conf = settings.HMMER.databases[self.database.id]
         except KeyError:
             raise ValueError(f"Database {self.database.id} not found in settings")
 
-        return Result.from_file(
-            result_path, algo=self.algo, id=self.id, db_conf=db_conf, **(self.restrictions.model_dump() or {})
+        result, total_count = Result.from_file(
+            self.result_path, algo=self.algo, id=self.id, db_conf=db_conf, **(self.restrictions.model_dump() or {})
         )
+
+        if self.algo == HmmerJob.AlgoChoices.JACKHMMER and self.iteration > 0:
+            result.stats.ngained = self.number_of_gained
+            result.stats.ndropped = self.number_of_dropped
+            result.stats.nlost = self.number_of_lost
+            result.stats.first_gained_index = self.first_gained_index
+
+        return result, total_count
 
     def clean(self):
         super().clean()
@@ -386,14 +377,71 @@ class HmmerJob(AL_Node):
 
             return workflow_chain
 
+    def post_process(self):
+        fields_to_update = []
+        if self.algo != HmmerJob.AlgoChoices.JACKHMMER:
+            stats = HmmdSearchStats.from_file(self.result_path)
+            self.number_of_hits = stats.nreported
+            self.number_of_included = stats.nincluded
+            fields_to_update += ["number_of_hits", "number_of_included"]
+
+        if self.algo == HmmerJob.AlgoChoices.JACKHMMER and self.iteration > 0:
+            if self.iteration > 1:
+                prev_job = self.get_parent()
+
+                prev_result, _ = Result.from_file(prev_job.result_path, with_domains=False, with_metadata=False)
+                prev_included_set = {int(hit.name) for hit in prev_result.hits if hit.is_included}
+            else:
+                prev_included_set = set()
+
+            result, _ = Result.from_file(self.result_path, with_domains=True, with_metadata=False)
+            included_set = {int(hit.name) for hit in result.hits if hit.is_included}
+            reported_set = {int(hit.name) for hit in result.hits if hit.is_reported}
+
+            gained_set = included_set - prev_included_set
+            dropped_set = prev_included_set & (reported_set - included_set)
+            lost_set = prev_included_set - reported_set
+
+            for hit in result.hits:
+                if int(hit.name) in gained_set:
+                    hit.flags = P7HitFlags(P7HitFlags["IS_NEW"] | P7HitFlags["IS_INCLUDED"] | P7HitFlags["IS_REPORTED"])
+                    logger.debug(hit.flags)
+                    hit.is_new = True
+
+                if int(hit.name) in dropped_set:
+                    hit.flags = P7HitFlags(P7HitFlags["IS_DROPPED"] | P7HitFlags["IS_REPORTED"])
+                    hit.is_dropped = True
+
+            first_gained_hit = next((hit for hit in result.hits if hit.is_new), None)
+
+            self.number_of_gained = len(gained_set)
+            self.number_of_dropped = len(dropped_set)
+            self.number_of_lost = len(lost_set)
+            self.number_of_hits = result.stats.nreported
+            self.number_of_included = result.stats.nincluded
+            self.first_gained_index = first_gained_hit.index if first_gained_hit is not None else None
+
+            Result.to_file(result, self.result_path)
+
+            fields_to_update += [
+                "number_of_gained",
+                "number_of_dropped",
+                "number_of_lost",
+                "number_of_hits",
+                "number_of_included",
+                "first_gained_index",
+            ]
+
+        self.save(update_fields=fields_to_update)
+
 
 @receiver(pre_delete, sender=HmmerJob)
 def cleanup_hmmer_job_files(sender, instance: HmmerJob, **kwargs):
-    if instance.task is None:
+    if instance.task is None and instance.result_path is None:
         return
 
     try:
-        enclosing_directory = Path(json.loads(instance.task.result)).parent
+        enclosing_directory = Path(instance.result_path).parent
         shutil.rmtree(enclosing_directory, ignore_errors=True)
         logger.debug(f"Deleted {enclosing_directory}")
     except Exception as e:

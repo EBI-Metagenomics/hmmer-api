@@ -12,7 +12,6 @@ from django.db import transaction
 from templated_email import send_templated_mail
 from hmmerapi.celery import app
 from search.client import Client, HmmpgmdServerError
-from result.models import HmmdSearchStats
 from .models import HmmerJob
 
 logger = logging.getLogger(__name__)
@@ -45,9 +44,9 @@ def run_search(self, job_id: str):
                 path=storage.path(path),
             )
 
-        stats = HmmdSearchStats.from_file(storage.path(path))
-        job.number_of_hits = stats.nreported
-        job.save(update_fields=["number_of_hits"])
+        job.result_path = storage.path(path)
+        job.save(update_fields=["result_path"])
+        job.post_process()
 
     except (HmmpgmdServerError, ConnectionError, gaierror) as e:
         logger.warning(e)
@@ -101,6 +100,13 @@ def schedule_next_iteration(self, job_id: str):
     next_job.taxonomy_distribution_graph_task = None
     next_job.include = []
     next_job.exclude = []
+    next_job.exclude_all = False
+    next_job.result_path = None
+    next_job.number_of_hits = None
+    next_job.number_of_included = None
+    next_job.number_of_gained = None
+    next_job.number_of_dropped = None
+    next_job.number_of_lost = None
 
     next_job = job.add_child(instance=next_job)
 

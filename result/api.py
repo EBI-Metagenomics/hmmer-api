@@ -1,4 +1,3 @@
-import json
 import logging
 import math
 from celery.states import SUCCESS, PENDING
@@ -8,7 +7,7 @@ from ninja import Router, Schema, Query, Field
 from typing import List, Optional, Dict, Annotated, Any
 from pydantic import UUID4, Discriminator, Tag
 
-from search.models import HmmerJob
+from search.models import HmmerJob, Restrictions
 from .models import Result, P7Domain, post_process_pfam
 
 logger = logging.getLogger(__name__)
@@ -84,29 +83,17 @@ def get_result(request, id: str, query: Query[ResultQuerySchema]):
     if status != SUCCESS:
         return {"status": status}
 
-    try:
-        db_config = settings.HMMER.databases[job.database.id]
-    except KeyError:
-        raise ValueError(f"Database {job.database.id} not found in settings")
-
-    if job.algo == HmmerJob.AlgoChoices.JACKHMMER and job.iteration > 1:
-        parent_job = job.get_parent()
-        previous_result_file = parent_job.result_file
-    else:
-        previous_result_file = None
-
-    result, total_count = Result.from_file(
-        json.loads(job.task.result),
+    restrictions = Restrictions(
         start=(query.page - 1) * query.page_size,
         end=query.page * query.page_size,
-        db_conf=db_config,
-        taxonomy_ids=query.taxonomy_ids,
+        with_metadata=True,
         with_domains=query.with_domains or job.algo == HmmerJob.AlgoChoices.HMMSCAN,
+        taxonomy_ids=query.taxonomy_ids,
         architecture=query.architecture,
-        algo=job.algo,
-        id=id,
-        previous_result_file=previous_result_file
     )
+
+    job.set_restrictions(restrictions)
+    result, total_count = job.get_result()
 
     if job.algo == HmmerJob.AlgoChoices.HMMSCAN:
         post_process_pfam(result)
@@ -132,7 +119,7 @@ def get_domains(request, id: str, query: Query[AlignmentQuerySchema]):
         raise ValueError(f"Database {job.database.id} not found in settings")
 
     result, _ = Result.from_file(
-        json.loads(job.task.result),
+        job.result_path,
         with_metadata=False,
         with_domains=True,
         start=query.index,

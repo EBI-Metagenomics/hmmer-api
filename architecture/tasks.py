@@ -27,7 +27,7 @@ def build_architecture(self, job_id: str):
     except KeyError:
         raise ValueError(f"Database {job.database.id} not found in settings")
 
-    architectures = Architecture.from_raw_hits(json.loads(job.task.result), db_config)
+    architectures = Architecture.from_raw_hits(job.result_path, db_config)
 
     storage = storages["results"]
     name = storage.save(f"{job.id}/architecture.json", ContentFile(""))

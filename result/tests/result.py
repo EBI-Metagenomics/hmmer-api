@@ -47,3 +47,20 @@ class ResultTestCase(SimpleTestCase):
         self.assertEqual(result.stats.nincluded, 527)
 
         self.assertEqual(len(result.hits), 10)
+
+    def test_result_to_data(self):
+        result, _ = Result.from_file(self.binary_file_path, with_domains=True, with_metadata=False)
+
+        data = Result.to_data(result)
+
+        with open(self.binary_file_path, mode="rb") as fh:
+            data_from_file = fh.read()
+
+        self.assertCountEqual(data, data_from_file)
+        self.assertEqual(data, data_from_file)
+
+    def test_result_to_data_no_domains(self):
+        result, _ = Result.from_file(self.binary_file_path, with_domains=False, with_metadata=False)
+
+        with self.assertRaises(ValueError):
+            Result.to_data(result)
