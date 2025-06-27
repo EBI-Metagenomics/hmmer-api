@@ -391,6 +391,7 @@ class HmmerJob(AL_Node):
 
                 prev_result, _ = Result.from_file(prev_job.result_path, with_domains=False, with_metadata=False)
                 prev_included_set = {int(hit.name) for hit in prev_result.hits if hit.is_included}
+                del prev_result
             else:
                 prev_included_set = set()
 
