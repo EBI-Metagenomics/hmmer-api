@@ -21,7 +21,7 @@ class Architecture(models.Model):
     @classmethod
     def from_results(cls, result: Result, database: str):
         sorted_hits = sorted(
-            result.hits,
+            [hit for hit in result.hits if hit.is_included],
             key=lambda hit: (hit.metadata.architecture_checksum, hit.metadata.architecture_score, -hit.evalue),
             reverse=True,
         )
@@ -60,7 +60,7 @@ class Architecture(models.Model):
         result, _ = Result.from_file(path, db_conf=db_config, with_domains=False, with_metadata=True)
 
         sorted_hits = sorted(
-            result.hits,
+            [hit for hit in result.hits if hit.is_included],
             key=lambda hit: (hit.metadata.architecture_checksum, hit.metadata.architecture_score, -hit.evalue),
             reverse=True,
         )
