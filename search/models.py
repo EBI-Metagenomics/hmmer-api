@@ -355,7 +355,10 @@ class HmmerJob(AL_Node):
                 return workflow_chain
 
         else:
-            subsequent_tasks = [signature("search.tasks.index_hits", args=(self.id,), immutable=True)]
+            subsequent_tasks = []
+
+            if self.algo != HmmerJob.AlgoChoices.HMMSCAN:
+                subsequent_tasks.append(signature("search.tasks.index_hits", args=(self.id,), immutable=True))
 
             if self.algo != self.AlgoChoices.HMMSCAN and self.with_taxonomy:
                 subsequent_tasks += [
