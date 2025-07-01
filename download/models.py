@@ -104,6 +104,7 @@ class FileBuildStrategy(ABC):
             id=file_job.job.id,
             taxonomy_ids=file_job.filters["taxonomy_ids"],
             architecture=file_job.filters["architecture"],
+            index_file=file_job.job.hits_index_path,
         )
         self.db_conf = db_config
         self.result = result
@@ -204,6 +205,7 @@ class MSABuildStrategy(FileBuildStrategy):
                 db_conf=self.db_conf,
                 taxonomy_ids=self.file_job.filters["taxonomy_ids"],
                 architecture=self.file_job.filters["architecture"],
+                index_file=self.file_job.job.hits_index_path,
             )
 
             include = [int(hit.name) for hit in result.hits if hit.is_included]

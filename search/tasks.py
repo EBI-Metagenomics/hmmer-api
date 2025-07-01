@@ -12,6 +12,7 @@ from django.db import transaction
 from templated_email import send_templated_mail
 from hmmerapi.celery import app
 from search.client import Client, HmmpgmdServerError
+from result.models import Result, HitsIndex
 from .models import HmmerJob
 
 logger = logging.getLogger(__name__)
@@ -46,7 +47,7 @@ def run_search(self, job_id: str):
 
         job.result_path = storage.path(path)
         job.save(update_fields=["result_path"])
-        job.post_process()
+        transaction.on_commit(lambda: job.post_process())
 
     except (HmmpgmdServerError, ConnectionError, gaierror) as e:
         logger.warning(e)
@@ -150,3 +151,26 @@ def notify_on_job_completion(self, job_id: str):
     finally:
         job.email_address = None
         job.save(update_fields=["email_address"])
+
+
+@app.task(bind=True)
+def index_hits(self, job_id: str):
+    logger.debug(f"Running indexing job {job_id}")
+
+    job = HmmerJob.objects.select_related("database").get(id=job_id)
+
+    try:
+        db_config = settings.HMMER.databases[job.database.id]
+    except KeyError:
+        raise ValueError(f"Database {job.database.id} not found in settings")
+
+    result, _ = Result.from_file(job.result_path, db_conf=db_config)
+    index = HitsIndex(result)
+
+    storage = storages["results"]
+    path = storage.save(f"{job.id}/index.pkl", ContentFile(b""))
+
+    index.to_file(storage.path(path))
+    job.hits_index_path = storage.path(path)
+
+    job.save(update_fields=["hits_index_path"])

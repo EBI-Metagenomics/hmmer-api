@@ -72,6 +72,7 @@ class HmmerJob(AL_Node):
     input_type = models.CharField(max_length=16, choices=InputChoices.choices, default=InputChoices.SEQUENCE)
     calculated_input = models.TextField(null=True, blank=True)
     result_path = models.FilePathField(path=settings.HMMER.results_storage_location, null=True, blank=True)
+    hits_index_path = models.FilePathField(path=settings.HMMER.results_storage_location, null=True, blank=True)
 
     threshold = models.CharField(max_length=16, choices=ThresholdChoices.choices, default=ThresholdChoices.EVALUE)
     E = models.FloatField(default=1.0, null=True, blank=True)
@@ -272,7 +273,12 @@ class HmmerJob(AL_Node):
             raise ValueError(f"Database {self.database.id} not found in settings")
 
         result, total_count = Result.from_file(
-            self.result_path, algo=self.algo, id=self.id, db_conf=db_conf, **(self.restrictions.model_dump() or {})
+            self.result_path,
+            algo=self.algo,
+            id=self.id,
+            db_conf=db_conf,
+            index_file=self.hits_index_path,
+            **(self.restrictions.model_dump() or {}),
         )
 
         if self.algo == HmmerJob.AlgoChoices.JACKHMMER and self.iteration > 0:
@@ -316,7 +322,7 @@ class HmmerJob(AL_Node):
             else:
                 workflow = [signature("search.tasks.run_search", args=(self.id,), immutable=True)]
 
-                subsequent_tasks = []
+                subsequent_tasks = [signature("search.tasks.index_hits", args=(self.id,), immutable=True)]
 
                 if self.with_taxonomy:
                     subsequent_tasks += [
@@ -349,7 +355,7 @@ class HmmerJob(AL_Node):
                 return workflow_chain
 
         else:
-            subsequent_tasks = []
+            subsequent_tasks = [signature("search.tasks.index_hits", args=(self.id,), immutable=True)]
 
             if self.algo != self.AlgoChoices.HMMSCAN and self.with_taxonomy:
                 subsequent_tasks += [
@@ -378,6 +384,7 @@ class HmmerJob(AL_Node):
             return workflow_chain
 
     def post_process(self):
+        logger.debug(f"CALLED POST PROCESS {self.id}")
         fields_to_update = []
         if self.algo != HmmerJob.AlgoChoices.JACKHMMER:
             stats = HmmdSearchStats.from_file(self.result_path)
@@ -406,7 +413,6 @@ class HmmerJob(AL_Node):
             for hit in result.hits:
                 if int(hit.name) in gained_set:
                     hit.flags = P7HitFlags(P7HitFlags["IS_NEW"] | P7HitFlags["IS_INCLUDED"] | P7HitFlags["IS_REPORTED"])
-                    logger.debug(hit.flags)
                     hit.is_new = True
 
                 if int(hit.name) in dropped_set:

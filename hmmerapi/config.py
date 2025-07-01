@@ -59,6 +59,9 @@ class HmmerSettings(BaseSettings):
     retry_period_seconds: int = 30 * 60
     max_retries: int = 6
 
+    result_chunk_size: int = 100
+    result_threads: int = 4
+
     model_config = SettingsConfigDict(env_prefix="HMMER_")
 
 

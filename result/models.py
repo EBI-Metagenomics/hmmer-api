@@ -2,6 +2,11 @@ import io
 import os
 import re
 import math
+import pickle
+import logging
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from collections import defaultdict
+from hashlib import md5
 
 from construct import (
     Float64b,
@@ -21,6 +26,7 @@ from construct import (
 )
 
 from construct_typed import DataclassMixin, DataclassStruct, csfield, FlagsEnumBase, EnumBase
+from django.conf import settings
 from pydantic import BaseModel, Field, model_serializer, AliasPath, field_validator, ValidationInfo, model_validator
 from pydantic.dataclasses import dataclass
 from dataclasses import asdict
@@ -28,6 +34,7 @@ from typing import List, Optional, TypeVar, Type, Any, Dict, Tuple
 
 from hmmerapi.config import DatabaseSettings
 
+logger = logging.getLogger(__name__)
 
 T = TypeVar("T")
 
@@ -440,9 +447,9 @@ class P7Domain(HmmpgmdModel):
     """Overall score in BITS, null corrected, if this were the only domain in seq"""
     lnP: float = csfield(Float64b)
     """log(P-value) of the bitscore"""
-    ievalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._._.stats.Z))
+    ievalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._params.get("stats").Z))
     """The independent e-value for the domain"""
-    cevalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._._.stats.domZ))
+    cevalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._params.get("stats").domZ))
     """The conditional e-value for the domain"""
     is_reported: bool = csfield(Int32ub)
     """TRUE if domain meets reporting thresholds"""
@@ -547,7 +554,7 @@ class P7Hit(HmmpgmdModel):
     """Accession of the hit"""
     desc: Optional[str] = csfield(If(this.string_presence_flags.DESC_PRESENT, CString("utf8")))
     """Description of the hit"""
-    evalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._.stats.Z))
+    evalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._params.get("stats").Z))
     """E-value of the hit"""
     metadata: Optional[Dict[str, Any]] = csfield(
         If(
@@ -598,81 +605,82 @@ class Result(BaseModel):
         architecture: Optional[str] = None,
         algo: Optional[str] = None,
         id: Optional[str] = None,
-        previous_result_file: Optional[str] = None,
+        index_file: Optional[os.PathLike] = None
     ) -> Tuple["Result", int]:
+        context = {
+            "db_conf": db_conf,
+            "with_domains": with_domains,
+            "with_metadata": with_metadata,
+            "start": start,
+            "algo": algo,
+            "id": id,
+            "database": db_conf.name if db_conf else None,
+        }
+
         stats_format = DataclassStruct(HmmdSearchStats)
-        stats = stats_format.parse_file(file)
+        stats = stats_format.parse_file(file, **context)
+
+        # Decide which hit offsets to use
+        if taxonomy_ids or architecture:
+            if index_file is not None:
+                index = HitsIndex.from_file(index_file)
+
+                if taxonomy_ids:
+                    offsets = index.get_offsets_for_taxonomy_ids(taxonomy_ids)
+                if architecture:
+                    offsets = index.get_offsets_for_architecture(architecture)
+            else:
+                offsets = stats.hit_offsets
+        else:
+            offsets = stats.hit_offsets
+
+        # Set start and end
+        if (taxonomy_ids or architecture) and index_file is None:
+            adjusted_start = 0
+            adjusted_end = stats.nhits
+        else:
+            adjusted_start = start or 0
+            adjusted_end = end or len(offsets)
+
+            if adjusted_start < 0:
+                adjusted_start = 0
+
+            if adjusted_end > len(offsets):
+                adjusted_end = len(offsets)
+
+        length = adjusted_end - adjusted_start
+
+        if length == 0:
+            return Result(stats=stats, hits=[]), len(offsets)
+
+        max_workers = settings.HMMER.result_threads
+        chunk_size = settings.HMMER.result_chunk_size
+
+        if length <= chunk_size or max_workers <= 1:
+            unpack_method = Result._unpack_hits_sequential
+        else:
+            unpack_method = Result._unpack_hits_parallel
+
+        context["start"] = adjusted_start
+        context["stats"] = stats
 
         if taxonomy_ids or architecture:
-            format = Struct(
-                "stats" / DataclassStruct(HmmdSearchStats),
-                "hits"
-                / Array(
-                    stats.nhits,
-                    Pointer(
-                        lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
-                        DataclassStruct(P7Hit),
-                    ),
-                ),
-            )
+            context["with_metadata"] = True
 
-            parsed = format.parse_file(
-                file,
-                db_conf=db_conf,
-                with_domains=with_domains,
-                with_metadata=with_metadata,
-                start=0,
-                algo=algo,
-                id=id,
-                database=db_conf.name if db_conf else None,
-            )
+        hits = unpack_method(file, stats.size, offsets, adjusted_start, adjusted_end, context)
+        total_count = len(offsets)
 
+        if (taxonomy_ids or architecture) and index_file is None:
             if taxonomy_ids:
-                parsed.hits = [hit for hit in parsed.hits if set(hit.metadata.lineage) & set(taxonomy_ids)]
+                hits = [hit for hit in hits if hit.metadata.taxonomy_id in taxonomy_ids]
 
             if architecture:
-                parsed.hits = [hit for hit in parsed.hits if hit.metadata.architecture == architecture]
+                hits = [hit for hit in hits if hit.metadata.architecture == architecture]
 
-            total_count = len(parsed.hits)
-            parsed.hits = parsed.hits[start:end]
-        else:
-            start = start or 0
-            end = end or stats.nhits
+            total_count = len(hits)
+            hits = hits[start:end]
 
-            if start < 0:
-                start = 0
-
-            if end > stats.nhits:
-                end = stats.nhits
-
-            length = end - start
-
-            format = Struct(
-                "stats" / DataclassStruct(HmmdSearchStats),
-                "hits"
-                / Array(
-                    length,
-                    Pointer(
-                        lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
-                        DataclassStruct(P7Hit),
-                    ),
-                ),
-            )
-
-            parsed = format.parse_file(
-                file,
-                db_conf=db_conf,
-                with_domains=with_domains,
-                with_metadata=with_metadata,
-                start=start,
-                algo=algo,
-                id=id,
-                database=db_conf.name if db_conf else None,
-            )
-
-            total_count = stats.nhits
-
-        return parsed, total_count
+        return Result(hits=hits, stats=stats), total_count
 
     @classmethod
     def from_data(
@@ -713,6 +721,7 @@ class Result(BaseModel):
                 algo=algo,
                 id=id,
                 database=db_conf.name if db_conf else None,
+                stats=stats,
             )
 
             if taxonomy_ids:
@@ -759,6 +768,7 @@ class Result(BaseModel):
                 algo=algo,
                 id=id,
                 database=db_conf.name if db_conf else None,
+                stats=stats,
             ),
             stats.nhits,
         )
@@ -768,12 +778,18 @@ class Result(BaseModel):
         if result.hits[0].domains is None:
             raise ValueError("Cannot build results without domains")
 
+        if len(result.hits) != result.stats.nhits:
+            raise ValueError("Cannot write partial results")
+
         format = Struct(
             "stats" / DataclassStruct(HmmdSearchStats),
             "hits" / Array(result.stats.nhits, DataclassStruct(P7Hit)),
         )
-
-        return format.build(result)
+        for hit in result.hits:
+            if hit.is_new:
+                logger.debug(hit)
+                break
+        return format.build({"stats": result.stats, "hits": result.hits}, stats=result.stats)
 
     @classmethod
     def to_file(cls, result: "Result", file: os.PathLike):
@@ -781,6 +797,80 @@ class Result(BaseModel):
 
         with open(file, mode="wb") as fh:
             fh.write(data)
+
+    @classmethod
+    def _unpack_hits_parallel(
+        cls, file: os.PathLike, stats_size: int, offsets: List[int], start: int, end: int, context: Dict[str, Any]
+    ):
+        max_workers = settings.HMMER.result_threads
+        chunk_size = settings.HMMER.result_chunk_size
+        number_of_chunks = math.ceil((end - start) / chunk_size)
+
+        chunks = [
+            (i, start + i * chunk_size, min(chunk_size, end - (start + i * chunk_size)))
+            for i in range(number_of_chunks)
+        ]
+
+        actual_workers = min(max_workers, len(chunks))
+
+        def parse_hit_chunk(
+            file: os.PathLike, start: int, length: int, stats_size: int, offsets: List[int], context: Dict[str, Any]
+        ):
+            format = Array(
+                length,
+                Pointer(
+                    lambda ctx: stats_size + offsets[start + ctx._index],
+                    DataclassStruct(P7Hit),
+                ),
+            )
+
+            context["start"] = start
+
+            hits = format.parse_file(file, **context)
+
+            return hits
+
+        with ThreadPoolExecutor(max_workers=actual_workers) as executor:
+            future_to_chunk = {
+                executor.submit(parse_hit_chunk, file, chunk_start, chunk_length, stats_size, offsets, context): i
+                for i, chunk_start, chunk_length in chunks
+            }
+
+            chunk_results: Dict[int, List[P7Hit]] = {}
+
+            for future in as_completed(future_to_chunk):
+                chunk_index = future_to_chunk[future]
+                try:
+                    chunk_hits = future.result()
+                    chunk_results[chunk_index] = chunk_hits
+                except Exception as e:
+                    logger.error(f"Error processing chunk {chunk_index}: {e}")
+                    chunk_results[chunk_index] = []
+
+        all_hits: List[P7Hit] = []
+
+        for i in sorted(chunk_results.keys()):
+            all_hits.extend(chunk_results[i])
+
+        return all_hits
+
+    @classmethod
+    def _unpack_hits_sequential(
+        cls, file: os.PathLike, stats_size: int, offsets: List[int], start: int, end: int, context: Dict[str, Any]
+    ):
+        length = end - start
+
+        format = Array(
+            length,
+            Pointer(
+                lambda ctx: stats_size + offsets[start + ctx._index],
+                DataclassStruct(P7Hit),
+            ),
+        )
+
+        hits = format.parse_file(file, **context)
+
+        return hits
 
 
 def post_process_pfam(result: Result):
@@ -948,3 +1038,52 @@ def predict_active_sites(result: Result):
                         domain.predicted_active_sites = [(source, match)]
                     else:
                         domain.predicted_active_sites.append((source, match))
+
+
+class HitsIndex():
+    def __init__(self, result: Result):
+        self.architecture_index: Dict[str, List[int]] = defaultdict(list)
+        self.taxonomy_index: Dict[int, list[int]] = defaultdict(list)
+
+        self.taxonomy_index[1] = result.stats.hit_offsets
+
+        for i, hit in enumerate(result.hits):
+            architecture_hash = md5(hit.metadata.architecture.encode()).hexdigest()
+            self.architecture_index[architecture_hash].append(result.stats.hit_offsets[i])
+
+            if hit.metadata.lineage is None:
+                continue
+
+            for tax_id in hit.metadata.lineage:
+                if tax_id is None:
+                    continue
+
+                self.taxonomy_index[tax_id].append(result.stats.hit_offsets[i])
+
+    def get_offsets_for_architecture(self, architecture: str):
+        hash = md5(architecture.encode()).hexdigest()
+
+        return self.architecture_index[hash]
+
+    def get_offsets_for_taxonomy_ids(self, ids: List[int]):
+        offsets: set[int] = set()
+
+        for id in ids:
+            offsets.update(self.taxonomy_index[id])
+
+        return sorted(offsets)
+
+    def to_file(self, file: os.PathLike):
+        with open(file, mode="wb") as fh:
+            pickle.dump(self, fh)
+
+    @classmethod
+    def from_file(cls, file: os.PathLike) -> "HitsIndex":
+        with open(file, mode="rb") as fh:
+            return pickle.load(fh)
+
+    def __eq__(self, other):
+        if not isinstance(other, HitsIndex):
+            return False
+
+        return self.architecture_index == other.architecture_index and self.taxonomy_index == other.taxonomy_index

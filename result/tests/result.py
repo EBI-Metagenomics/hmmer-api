@@ -1,9 +1,9 @@
 import os
-
+import tempfile
 from django.test import SimpleTestCase
 
 from hmmerapi.config import DatabaseSettings
-from result.models import Result
+from result.models import Result, HitsIndex
 
 
 class ResultTestCase(SimpleTestCase):
@@ -64,3 +64,65 @@ class ResultTestCase(SimpleTestCase):
 
         with self.assertRaises(ValueError):
             Result.to_data(result)
+
+    def test_result_to_data_partial(self):
+        result, _ = Result.from_file(self.binary_file_path, with_domains=False, with_metadata=False, start=0, end=10)
+
+        with self.assertRaises(ValueError):
+            Result.to_data(result)
+
+    def test_result_index(self):
+        result, _ = Result.from_file(
+            self.binary_file_path, with_domains=False, with_metadata=True, db_conf=self.db_config
+        )
+
+        index = HitsIndex(result)
+
+        self.assertEqual(len(index.taxonomy_index), 105)
+        self.assertEqual(len(index.taxonomy_index[1]), 644)
+
+        self.assertEqual(len(index.architecture_index), 63)
+
+    def test_result_index_write(self):
+        result, _ = Result.from_file(
+            self.binary_file_path, with_domains=False, with_metadata=True, db_conf=self.db_config
+        )
+
+        index = HitsIndex(result)
+
+        with tempfile.TemporaryDirectory() as temp_dir:
+            file = os.path.join(temp_dir, "index.pkl")
+            index.to_file(file)
+            index_from_file = HitsIndex.from_file(file)
+
+        self.assertEqual(index, index_from_file)
+
+    def test_result_index_architecture(self):
+        result, _ = Result.from_file(
+            self.binary_file_path, with_domains=False, with_metadata=True, db_conf=self.db_config
+        )
+
+        index = HitsIndex(result)
+
+        offsets = index.get_offsets_for_architecture("PF00018.33")
+        self.assertEqual(len(offsets), 252)
+
+        offsets = index.get_offsets_for_architecture("PF00017.29 PF00102.32")
+        self.assertEqual(len(offsets), 1)
+
+    def test_result_index_taxonomy(self):
+        result, _ = Result.from_file(
+            self.binary_file_path, with_domains=False, with_metadata=True, db_conf=self.db_config
+        )
+
+        index = HitsIndex(result)
+
+        offsets = index.get_offsets_for_taxonomy_ids([9606])
+        self.assertEqual(len(offsets), 408)
+
+        offsets = index.get_offsets_for_taxonomy_ids([1])
+        self.assertEqual(len(offsets), 644)
+        self.assertEqual(offsets, result.stats.hit_offsets)
+
+        offsets = index.get_offsets_for_taxonomy_ids([1, 9606])
+        self.assertEqual(len(offsets), 644)

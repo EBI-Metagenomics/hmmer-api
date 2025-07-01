@@ -3,6 +3,7 @@
 import json
 
 from django.db import migrations, models
+from django.conf import settings
 from celery.states import SUCCESS
 
 
@@ -45,7 +46,7 @@ class Migration(migrations.Migration):
             model_name="hmmerjob",
             name="result_path",
             field=models.FilePathField(
-                blank=True, null=True, path="/Users/aleksandar/Documents/djhmmer_temp/hmmer-api/results"
+                blank=True, null=True, path=settings.HMMER.results_storage_location
             ),
         ),
         migrations.RunPython(
