@@ -8,6 +8,8 @@ from django.db import models
 from django.conf import settings
 from django.core.files.storage import storages
 from django.template import loader
+from django.db.models.signals import pre_delete
+from django.dispatch import receiver
 from django_celery_results.models import TaskResult
 from pyhmmer.easel import SSIReader, TextSequence, TextSequenceBlock
 from result.models import Result
@@ -84,6 +86,14 @@ class FileJob(models.Model):
     task = models.OneToOneField(TaskResult, related_name="+", null=True, blank=True, on_delete=models.CASCADE)
     filters = models.JSONField(default=dict)
     file = models.FileField(storage=storages["downloads"], blank=True, null=True)
+
+
+@receiver(pre_delete, sender=FileJob)
+def cleanup_file_job_files(sender, instance: FileJob, **kwargs):
+    if instance.file is None:
+        return
+
+    instance.file.delete(save=False)
 
 
 class FileBuildStrategy(ABC):

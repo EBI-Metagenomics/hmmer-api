@@ -387,8 +387,8 @@ class HmmerJob(AL_Node):
             return workflow_chain
 
     def post_process(self):
-        logger.debug(f"CALLED POST PROCESS {self.id}")
         fields_to_update = []
+
         if self.algo != HmmerJob.AlgoChoices.JACKHMMER:
             stats = HmmdSearchStats.from_file(self.result_path)
             self.number_of_hits = stats.nreported
@@ -453,7 +453,6 @@ def cleanup_hmmer_job_files(sender, instance: HmmerJob, **kwargs):
     try:
         enclosing_directory = Path(instance.result_path).parent
         shutil.rmtree(enclosing_directory, ignore_errors=True)
-        logger.debug(f"Deleted {enclosing_directory}")
     except Exception as e:
         logger.warning(e)
 
