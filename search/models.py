@@ -1,6 +1,7 @@
 import uuid
 import datetime
 import os
+import io
 import concurrent.futures
 import shutil
 import logging
@@ -13,7 +14,8 @@ from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django_celery_results.models import TaskResult
 from celery import signature, chain, group, states
-from pyhmmer.easel import SSIReader, TextSequence, TextSequenceBlock
+from pyhmmer.easel import SSIReader, TextSequence, TextSequenceBlock, SequenceFile, MSAFile
+from pyhmmer.plan7 import HMMFile
 from treebeard.al_tree import AL_Node
 
 from result.models import Result, Restrictions, P7HitFlags, HmmdSearchStats
@@ -47,6 +49,9 @@ class HmmerJob(AL_Node):
         HMM = "hmm"
         MSA = "msa"
         UUID = "uuid"
+        MULTI_SEQUENCE = "multi_sequence"
+        MULTI_HMM = "multi_hmm"
+        MULTI_MSA = "multi_msa"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, unique=True)
     task = models.OneToOneField(TaskResult, related_name="+", null=True, blank=True, on_delete=models.CASCADE)
@@ -251,14 +256,62 @@ class HmmerJob(AL_Node):
     def parent_job_id(self):
         parent_job = self.get_root()
 
-        if parent_job:
+        if parent_job and parent_job.id != self.id:
             return parent_job.id
 
         return None
 
     @property
     def is_batch_mode(self):
-        return self.algo == HmmerJob.AlgoChoices.JACKHMMER and self.iterations is not None and self.iterations > 0
+        if self.algo == HmmerJob.AlgoChoices.JACKHMMER:
+            return self.iterations is not None and self.iterations > 1
+
+        return self.input_type in {
+            HmmerJob.InputChoices.MULTI_SEQUENCE,
+            HmmerJob.InputChoices.MULTI_MSA,
+            HmmerJob.InputChoices.MULTI_HMM,
+        }
+
+    @property
+    def query_name(self):
+        if self.input_type == HmmerJob.InputChoices.MULTI_SEQUENCE:
+            return "multiple sequences"
+
+        if self.input_type == HmmerJob.InputChoices.MULTI_MSA:
+            return "multiple MSAs"
+
+        if self.input_type == HmmerJob.InputChoices.MULTI_HMM:
+            return "multiple HMMs"
+
+        if self.input_type == HmmerJob.InputChoices.SEQUENCE:
+            try:
+                with SequenceFile(io.BytesIO(self.input.encode()), format="fasta") as fh:
+                    sequence = fh.read()
+                    return sequence.name.decode()
+            except ValueError:
+                return "unknown"
+        if self.input_type == HmmerJob.InputChoices.MSA:
+            try:
+                with MSAFile(io.BytesIO(self.input.encode())) as fh:
+                    msa = fh.read()
+                    if msa.name is not None:
+                        return msa.name.decode()
+                    else:
+                        return "unnamed MSA"
+            except ValueError:
+                return "unknown"
+        if self.input_type == HmmerJob.InputChoices.HMM:
+            try:
+                with HMMFile(io.BytesIO(self.input.encode())) as fh:
+                    hmm = fh.read()
+                    if hmm.name is not None:
+                        return hmm.name.decode()
+                    else:
+                        return "unnamed HMM"
+            except ValueError:
+                return "unknown"
+
+        return ""
 
     def set_restrictions(self, restrictions: Restrictions):
         self.restrictions = restrictions
@@ -315,7 +368,7 @@ class HmmerJob(AL_Node):
             self.popen = None
             self.pextend = None
 
-    def get_workflow(self):
+    def get_workflow(self, as_batch=False):
         if self.algo == self.AlgoChoices.JACKHMMER:
             if self.iteration == 0:
                 return signature("search.tasks.schedule_next_iteration", args=(self.id,), immutable=True)
@@ -355,6 +408,9 @@ class HmmerJob(AL_Node):
                 return workflow_chain
 
         else:
+            if self.is_batch_mode:
+                return signature("search.tasks.schedule_batch_jobs", args=(self.id,), immutable=True)
+
             subsequent_tasks = []
 
             if self.algo != HmmerJob.AlgoChoices.HMMSCAN:
@@ -375,7 +431,12 @@ class HmmerJob(AL_Node):
                 subsequent_tasks += [signature("architecture.tasks.build_annotation", args=(self.id,), immutable=True)]
 
             workflow_chain = chain(
-                signature("search.tasks.run_search", args=(self.id,), immutable=True),
+                signature(
+                    "search.tasks.run_search",
+                    args=(self.id,),
+                    immutable=True,
+                    queue="batch_queue" if as_batch else "io_bound_queue",
+                ),
                 group(*subsequent_tasks),
                 signature("search.tasks.notify_on_job_completion", args=(self.id,), immutable=True),
             )

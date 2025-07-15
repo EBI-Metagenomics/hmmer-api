@@ -36,6 +36,12 @@ class JackhmmerResponseSchema(Schema):
     convergence_stats: Optional[Dict[str, int]]
 
 
+class BatchResponseSchema(Schema):
+    id: UUID4
+    query_name: str
+    status: str
+
+
 class AlignmentQuerySchema(Schema):
     index: int = Field(default=0, ge=0)
 
@@ -47,13 +53,20 @@ class AlignmentResponseSchema(Schema):
 
 def get_discriminator_value(v: Any):
     if isinstance(v, list):
+        if len(v) > 0 and v[0].get("iteration", None) is None:
+            return "batch"
+
         return "jackhmmer"
 
     return "other"
 
 
 ResponseSchema = Annotated[
-    (Annotated[ResultResponseSchema, Tag("other")] | Annotated[List[JackhmmerResponseSchema], Tag("jackhmmer")]),
+    (
+        Annotated[ResultResponseSchema, Tag("other")]
+        | Annotated[List[JackhmmerResponseSchema], Tag("jackhmmer")]
+        | Annotated[List[BatchResponseSchema], Tag("batch")]
+    ),
     Discriminator(get_discriminator_value),
 ]
 
@@ -71,6 +84,18 @@ def get_result(request, id: str, query: Query[ResultQuerySchema]):
                 "status": descendant.task.status if descendant.task is not None else PENDING,
                 "iteration": descendant.iteration,
                 "convergence_stats": descendant.convergence_stats,
+            }
+            for descendant in descendants
+        ]
+
+    if job.algo != HmmerJob.AlgoChoices.JACKHMMER and job.is_batch_mode:
+        descendants = job.get_descendants()
+
+        return [
+            {
+                "id": descendant.id,
+                "query_name": descendant.query_name,
+                "status": descendant.task.status if descendant.task is not None else PENDING,
             }
             for descendant in descendants
         ]

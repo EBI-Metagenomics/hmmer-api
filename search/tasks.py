@@ -1,15 +1,18 @@
 import copy
+import io
 import logging
 from socket import gaierror
 from urllib.parse import urljoin
 
-from celery.states import SUCCESS, FAILURE
+from celery.states import SUCCESS, FAILURE, READY_STATES
 from django.conf import settings
 from django_celery_results.models import TaskResult
 from django.core.files.base import ContentFile
 from django.core.files.storage import storages
 from django.db import transaction
 from templated_email import send_templated_mail
+from pyhmmer.easel import SequenceFile
+
 from hmmerapi.celery import app
 from search.client import Client, HmmpgmdServerError
 from result.models import Result, HitsIndex
@@ -108,6 +111,7 @@ def schedule_next_iteration(self, job_id: str):
     next_job.number_of_gained = None
     next_job.number_of_dropped = None
     next_job.number_of_lost = None
+    next_job.email_address = None
 
     next_job = job.add_child(instance=next_job)
 
@@ -117,11 +121,124 @@ def schedule_next_iteration(self, job_id: str):
 
 
 @app.task(bind=True)
+def schedule_batch_jobs(self, job_id: str):
+    job = HmmerJob.objects.select_related("database", "parent").get(id=job_id)
+
+    logger.debug(f"Creating child (batch) jobs from job {job_id}")
+
+    with SequenceFile(io.BytesIO(job.input.encode()), format="fasta") as fh:
+        block = fh.read_block()
+
+        for sequence in block:
+            next_job = copy.copy(job)  # this is to create a copy
+
+            next_job.input_type = HmmerJob.InputChoices.SEQUENCE
+            next_job.input = f">{sequence.name.decode()} {sequence.description.decode()}\n{sequence.sequence}"
+            next_job.id = None
+            next_job.pk = None
+            next_job.parent = None
+            next_job._state.adding = True
+            next_job.task = None
+            next_job.annotation_task = None
+            next_job.architecture_task = None
+            next_job.taxonomy_tree_task = None
+            next_job.taxonomy_distribution_task = None
+            next_job.taxonomy_distribution_graph_task = None
+            next_job.include = []
+            next_job.exclude = []
+            next_job.exclude_all = False
+            next_job.result_path = None
+            next_job.number_of_hits = None
+            next_job.number_of_included = None
+            next_job.number_of_gained = None
+            next_job.number_of_dropped = None
+            next_job.number_of_lost = None
+            next_job.email_address = None
+
+            next_job = job.add_child(instance=next_job)
+
+            workflow = next_job.get_workflow(as_batch=True)
+
+            transaction.on_commit(lambda: workflow.delay())
+
+
+@app.task(bind=True)
 def notify_on_job_completion(self, job_id: str):
     job = HmmerJob.objects.get(id=job_id)
 
     if job.email_address is None:
-        return
+        # Check if root job has email address
+        root_job = job.get_root()
+
+        if root_job.email_address is None:
+            return
+
+        if not root_job.is_batch_mode:
+            return
+
+        should_send_email = False
+        email_address = root_job.email_address
+
+        if job.algo == HmmerJob.AlgoChoices.JACKHMMER:
+            convergence_stats = job.convergence_stats
+            current_iteration = job.iteration
+            iterations = root_job.iterations
+
+            reached_requested_iterations = current_iteration == iterations
+            reached_convergence = (
+                convergence_stats["gained"] == 0
+                and convergence_stats["dropped"] == 0
+                and convergence_stats["lost"] == 0
+            )
+
+            if reached_requested_iterations or reached_convergence:
+                base = urljoin(settings.DJANGO.host_url, settings.DJANGO.base_url)
+                result_url = urljoin(base, f"results/{root_job.id}")
+                template_name = "jackhmmer"
+                should_send_email = True
+
+                context = {
+                    "job": root_job,
+                    "result_url": result_url,
+                    "reached_convergence": reached_convergence,
+                }
+
+                root_job.email_address = None
+                root_job.save(update_fields=["email_address"])
+        else:
+            all_ready = True
+
+            for sub_job in root_job.get_children():
+                if sub_job.task is None or sub_job.task.status not in READY_STATES:
+                    all_ready = False
+                    break
+
+            if all_ready:
+                base = urljoin(settings.DJANGO.host_url, settings.DJANGO.base_url)
+                result_url = urljoin(base, f"results/{root_job.id}")
+                template_name = "batch"
+                should_send_email = True
+
+                context = {
+                    "job": root_job,
+                    "result_url": result_url,
+                }
+
+                root_job.email_address = None
+                root_job.save(update_fields=["email_address"])
+
+        try:
+            if should_send_email:
+                send_templated_mail(
+                    template_name=template_name,
+                    from_email="noreply@ebi.ac.uk",
+                    recipient_list=[email_address],
+                    context=context,
+                )
+        except Exception:
+            pass
+        finally:
+            return
 
     if len(job.email_address) == 0:
         return

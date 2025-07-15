@@ -11,7 +11,7 @@ from ninja import Router, ModelSchema, Schema, Field
 from ninja.errors import HttpError
 from pydantic import UUID4, EmailStr, ValidationInfo, model_validator, field_validator
 from pydantic_core import PydanticCustomError
-from pyhmmer.easel import SequenceFile, MSAFile, TextSequence
+from pyhmmer.easel import SequenceFile, MSAFile
 from pyhmmer.plan7 import HMMFile
 from typing import List, Optional
 
@@ -64,6 +64,8 @@ class JobDetailsResponseSchema(ModelSchema):
             "parent",
             "include",
             "exclude",
+            "result_path",
+            "hits_index_path",
         ]
 
 
@@ -92,51 +94,74 @@ class SearchRequestSchema(ModelSchema):
     include: Optional[List[int]] = Field(default=[])
     exclude: Optional[List[int]] = Field(default=[])
 
-    @model_validator(mode="after")
-    def validate_input(self, info: ValidationInfo):
+    @field_validator('input', mode='before')
+    @classmethod
+    def validate_input(cls, v: str, info: ValidationInfo):
         algo = info.context["request"].get_full_path_info().split("/")[-1]
 
-        if algo == HmmerJob.AlgoChoices.PHMMER or algo == HmmerJob.AlgoChoices.HMMSCAN:
-            self.input = self.validate_sequence(self.input)
-            self.input_type = HmmerJob.InputChoices.SEQUENCE
+        if not hasattr(info.context, 'validation_results'):
+            info.context['validation_results'] = {}
 
-            return self
+        validated_input = None
+        input_type = None
+
+        if algo == HmmerJob.AlgoChoices.PHMMER or algo == HmmerJob.AlgoChoices.HMMSCAN:
+            validated_input, input_type = cls.validate_sequence(v)
+            info.context['validation_results']["input_type"] = input_type
+
+            return validated_input
 
         if algo == HmmerJob.AlgoChoices.HMMSEARCH:
             validators = [
-                (self.validate_hmm, HmmerJob.InputChoices.HMM),
-                (self.validate_msa, HmmerJob.InputChoices.MSA),
+                cls.validate_hmm,
+                cls.validate_msa,
             ]
 
-            for validator, input_type in validators:
+            for validator in validators:
                 try:
-                    self.input = validator(self.input)
-                    self.input_type = input_type
+                    validated_input, input_type = validator(v)
 
-                    return self
+                    break
                 except PydanticCustomError:
                     continue
 
-            raise PydanticCustomError("invalid_input", "Invalid HMM/MSA")
+            if input_type is None:
+                raise PydanticCustomError("invalid_input", "Invalid HMM/MSA")
+            else:
+                info.context['validation_results']["input_type"] = input_type
+                return validated_input
 
         if algo == HmmerJob.AlgoChoices.JACKHMMER:
             validators = [
-                (self.validate_uuid, HmmerJob.InputChoices.UUID),
-                (self.validate_sequence, HmmerJob.InputChoices.SEQUENCE),
-                (self.validate_hmm, HmmerJob.InputChoices.HMM),
-                (self.validate_msa, HmmerJob.InputChoices.MSA),
+                cls.validate_uuid,
+                cls.validate_sequence,
+                cls.validate_hmm,
+                cls.validate_msa,
             ]
 
-            for validator, input_type in validators:
+            for validator in validators:
                 try:
-                    self.input = validator(self.input)
-                    self.input_type = input_type
+                    validated_input, input_type = validator(v)
 
-                    return self
+                    break
                 except PydanticCustomError:
                     continue
 
-            raise PydanticCustomError("invalid_input", "Invalid jackhmmer input")
+            if input_type == HmmerJob.InputChoices.MULTI_SEQUENCE:
+                raise PydanticCustomError("invalid_input", "Multiple query sequences are not allowed for jackhmmer")
+            elif input_type is None:
+                raise PydanticCustomError("invalid_input", "Invalid jackhmmer input")
+            else:
+                info.context['validation_results']["input_type"] = input_type
+                return validated_input
+
+    @model_validator(mode="after")
+    def set_input_type_from_context(self, info: ValidationInfo):
+        if 'validation_results' in info.context:
+            if 'input_type' in info.context['validation_results']:
+                self.input_type = info.context['validation_results']['input_type']
+
+        return self
 
     @field_validator("iterations", mode="before", check_fields=False)
     @classmethod
@@ -154,27 +179,29 @@ class SearchRequestSchema(ModelSchema):
             with SequenceFile(io.BytesIO(input_with_header.encode()), format="fasta") as fh:
                 fh.guess_alphabet()
         except ValueError:
-            raise PydanticCustomError("invalid_input", "Sequence is not valid")
+            raise PydanticCustomError("invalid_input", "Sequence input is not valid")
 
         with SequenceFile(io.BytesIO(input_with_header.encode()), format="fasta") as fh:
             block = fh.read_block()
 
+            for i, sequence in enumerate(block):
+                if not sequence.sequence.strip():
+                    raise PydanticCustomError("invalid_input", f"Sequence {i + 1} is not valid")
+
+                if sequence.accession is None:
+                    raise PydanticCustomError("invalid_input", f"Sequence {i + 1} has no valid accession")
+
             if len(block) > 1:
-                raise PydanticCustomError("invalid_input", "Only one sequence is allowed")
-
-            input_sequence: TextSequence = block[0]
-
-            if not input_sequence.sequence.strip():
-                raise PydanticCustomError("invalid_input", "Sequence is not valid")
-
-        return input_with_header
+                return input_with_header, HmmerJob.InputChoices.MULTI_SEQUENCE
+            else:
+                return input_with_header, HmmerJob.InputChoices.SEQUENCE
 
     @classmethod
     def validate_hmm(cls, input: str):
         try:
             with HMMFile(io.BytesIO(input.encode())) as fh:
                 fh.is_pressed()
-            return input
+            return input, HmmerJob.InputChoices.HMM
         except ValueError:
             raise PydanticCustomError("invalid_input", "HMM is not valid")
 
@@ -183,15 +210,23 @@ class SearchRequestSchema(ModelSchema):
         try:
             with MSAFile(io.BytesIO(input.encode())) as fh:
                 fh.guess_alphabet()
-            return input
+
+                while msa := fh.read():
+                    if msa is None:
+                        break
+
+                    if len(msa.alignment) == 0:
+                        raise ValueError()
         except ValueError:
             raise PydanticCustomError("invalid_input", "MSA is not valid")
+
+        return input, HmmerJob.InputChoices.MSA
 
     @classmethod
     def validate_uuid(cls, input: str):
         try:
             if uuid.UUID(input).version == 4:
-                return input
+                return input, HmmerJob.InputChoices.UUID
         except (ValueError, AttributeError):
             raise PydanticCustomError("invalid_input", "UUID is not valid")
 
@@ -221,6 +256,7 @@ class SearchRequestSchema(ModelSchema):
             "with_architecture",
             "iterations",
             "exclude_all",
+            "email_address",
         ]
         fields_optional = "__all__"
 
@@ -282,6 +318,7 @@ def update_search(request: HttpRequest, id: str, body: SearchPatchSchema):
 
 class JobsResponseSchema(ModelSchema):
     task: Optional[TaskResultSchema]
+    query_name: str
 
     class Meta:
         model = HmmerJob
