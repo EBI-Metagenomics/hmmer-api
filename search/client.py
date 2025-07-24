@@ -17,11 +17,13 @@ class HmmpgmdError(Exception):
 
 class HmmpgmdValueError(HmmpgmdError):
     """Invalid argument/parameter or value out of range."""
+
     pass
 
 
 class HmmpgmdServerError(HmmpgmdError):
     """Server-related errors."""
+
     pass
 
 
@@ -45,9 +47,20 @@ class Client:
     def close(self):
         self.socket.close()
 
-    def search(self, db_cmd: str, parameters: str, query: str, path: Optional[os.PathLike] = None) -> Optional[bytes]:
+    def search(
+        self,
+        db_cmd: str,
+        parameters: str,
+        query: str,
+        path: Optional[os.PathLike] = None,
+        ranges: Optional[str] = None,
+    ) -> Optional[bytes]:
 
-        command = f"@{db_cmd} {parameters}\n{query}\n//"
+        if ranges:
+            command = f"@{db_cmd} {ranges} {parameters}\n{query}\n//"
+        else:
+            command = f"@{db_cmd} {parameters}\n{query}\n//"
+
         logger.debug(f"Sending command: {command}")
 
         self.socket.sendall(command.encode("ascii"))

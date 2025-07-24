@@ -43,6 +43,7 @@ def run_search(self, job_id: str):
         with Client(address=db_config.host, port=db_config.port) as client:
             client.search(
                 db_cmd=job.hmmpgmd_db,
+                ranges=job.hmmpgmd_ranges,
                 parameters=job.hmmpgmd_parameters,
                 query=job.hmmpgmd_query,
                 path=storage.path(path),

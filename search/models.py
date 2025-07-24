@@ -19,6 +19,7 @@ from pyhmmer.plan7 import HMMFile
 from treebeard.al_tree import AL_Node
 
 from result.models import Result, Restrictions, P7HitFlags, HmmdSearchStats
+from taxonomy.models import Range
 from utils.functions import seq_to_hmm, msa_to_hmm, hmm_from_hmmpgmd
 
 logger = logging.getLogger(__name__)
@@ -88,6 +89,7 @@ class HmmerJob(AL_Node):
     incdomE = models.FloatField(default=0.03, null=True, blank=True)
     incT = models.FloatField(default=25.0, null=True, blank=True)
     incdomT = models.FloatField(default=22.0, null=True, blank=True)
+    taxonomy_ids = models.JSONField(default=list)
 
     popen = models.FloatField(default=0.02, null=True, blank=True)
     pextend = models.FloatField(default=0.4, null=True, blank=True)
@@ -196,6 +198,18 @@ class HmmerJob(AL_Node):
                 self.save(update_fields=["calculated_input"])
 
                 return query
+
+    @property
+    def hmmpgmd_ranges(self) -> str:
+        if self.algo == HmmerJob.AlgoChoices.HMMSCAN:
+            return ""
+
+        if len(self.taxonomy_ids) == 0:
+            return ""
+
+        ranges = Range.objects.filter(database=self.database.id, taxonomy__id__in=self.taxonomy_ids)
+
+        return f"--seqdb_ranges {", ".join([f'{range.start}..{range.end}' for range in ranges])}"
 
     @property
     def input_hmm(self) -> str:

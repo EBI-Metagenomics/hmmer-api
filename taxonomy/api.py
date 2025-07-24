@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404
 from ninja import Router, ModelSchema, Schema, Field
 from celery.states import SUCCESS, PENDING
 from search.models import HmmerJob
-from .models import Taxonomy, TaxonomyTree, TaxonomyDistributionGraph
+from .models import Taxonomy, TaxonomyTree, TaxonomyDistributionGraph, Range
 
 logger = logging.getLogger(__name__)
 
@@ -37,24 +37,31 @@ def get(request):
 
 
 @router.get("/search", response=List[TaxonomyResponseSchema], tags=["taxonomy"])
-def search_taxonomy(request, q: str):
+def search_taxonomy(request, q: str, database: str):
     try:
         numerical_query = int(q)
     except ValueError:
         numerical_query = None
 
-    queryset = Taxonomy.objects.filter(rank="species")
+    queryset = Range.objects.select_related("taxonomy")
+    # queryset = Taxonomy.objects.filter(rank="species")
 
     if numerical_query is not None:
-        return queryset.filter(id=numerical_query)
+        if numerical_query < 1:
+            return []
+
+        return [range.taxonomy for range in queryset.filter(database=database, taxonomy__id=numerical_query)]
+
+    if not q:
+        return []
 
     words = q.split()
     search_query = SearchQuery(f"{words[0]}:*", search_type="raw")
+
     for word in words[1:]:
         search_query &= SearchQuery(f"{word}:*", search_type="raw")
-    logger.debug(search_query)
-    logger.debug(queryset.filter(search=search_query).query)
-    return queryset.filter(search=search_query)[:10]
+
+    return [range.taxonomy for range in queryset.filter(database=database, taxonomy__search=search_query)]
 
 
 @router.get("/{id}", response=TaxonomyResponseSchema, tags=["taxonomy"])
