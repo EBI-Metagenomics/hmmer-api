@@ -95,20 +95,20 @@ class SearchRequestSchema(ModelSchema):
     include: Optional[List[int]] = Field(default=[])
     exclude: Optional[List[int]] = Field(default=[])
 
-    @field_validator('input', mode='before')
+    @field_validator("input", mode="before")
     @classmethod
     def validate_input(cls, v: str, info: ValidationInfo):
         algo = info.context["request"].get_full_path_info().split("/")[-1]
 
-        if not hasattr(info.context, 'validation_results'):
-            info.context['validation_results'] = {}
+        if not hasattr(info.context, "validation_results"):
+            info.context["validation_results"] = {}
 
         validated_input = None
         input_type = None
 
         if algo == HmmerJob.AlgoChoices.PHMMER or algo == HmmerJob.AlgoChoices.HMMSCAN:
             validated_input, input_type = cls.validate_sequence(v)
-            info.context['validation_results']["input_type"] = input_type
+            info.context["validation_results"]["input_type"] = input_type
 
             return validated_input
 
@@ -129,7 +129,7 @@ class SearchRequestSchema(ModelSchema):
             if input_type is None:
                 raise PydanticCustomError("invalid_input", "Invalid HMM/MSA")
             else:
-                info.context['validation_results']["input_type"] = input_type
+                info.context["validation_results"]["input_type"] = input_type
                 return validated_input
 
         if algo == HmmerJob.AlgoChoices.JACKHMMER:
@@ -148,19 +148,23 @@ class SearchRequestSchema(ModelSchema):
                 except PydanticCustomError:
                     continue
 
-            if input_type == HmmerJob.InputChoices.MULTI_SEQUENCE:
-                raise PydanticCustomError("invalid_input", "Multiple query sequences are not allowed for jackhmmer")
+            if input_type in {
+                HmmerJob.InputChoices.MULTI_SEQUENCE,
+                HmmerJob.InputChoices.MULTI_HMM,
+                HmmerJob.InputChoices.MULTI_MSA,
+            }:
+                raise PydanticCustomError("invalid_input", "Multiple queries are not allowed for jackhmmer")
             elif input_type is None:
                 raise PydanticCustomError("invalid_input", "Invalid jackhmmer input")
             else:
-                info.context['validation_results']["input_type"] = input_type
+                info.context["validation_results"]["input_type"] = input_type
                 return validated_input
 
     @model_validator(mode="after")
     def set_input_type_from_context(self, info: ValidationInfo):
-        if 'validation_results' in info.context:
-            if 'input_type' in info.context['validation_results']:
-                self.input_type = info.context['validation_results']['input_type']
+        if "validation_results" in info.context:
+            if "input_type" in info.context["validation_results"]:
+                self.input_type = info.context["validation_results"]["input_type"]
 
         return self
 
@@ -189,6 +193,12 @@ class SearchRequestSchema(ModelSchema):
                 if not sequence.sequence.strip():
                     raise PydanticCustomError("invalid_input", f"Sequence {i + 1} is not valid")
 
+                if len(sequence.sequence.strip()) > settings.HMMER.max_sequence_base_pairs:
+                    raise PydanticCustomError(
+                        "invalid_input",
+                        f"Sequence {i + 1} is longer than {settings.HMMER.max_sequence_base_pairs} base pairs",
+                    )
+
                 if sequence.accession is None:
                     raise PydanticCustomError("invalid_input", f"Sequence {i + 1} has no valid accession")
 
@@ -202,26 +212,52 @@ class SearchRequestSchema(ModelSchema):
         try:
             with HMMFile(io.BytesIO(input.encode())) as fh:
                 fh.is_pressed()
-            return input, HmmerJob.InputChoices.HMM
         except ValueError:
-            raise PydanticCustomError("invalid_input", "HMM is not valid")
+            raise PydanticCustomError("invalid_input", "HMM input is not valid")
+
+        with HMMFile(io.BytesIO(input.encode())) as fh:
+            hmms = []
+            i = 0
+
+            while (hmm := fh.read()) is not None:
+                hmms.append(hmm)
+
+                try:
+                    hmm.validate()
+                except ValueError:
+                    raise PydanticCustomError("invalid_input", f"HMM {i + 1} is not valid")
+
+                i += 1
+
+            if len(hmms) > 1:
+                return input, HmmerJob.InputChoices.MULTI_HMM
+            else:
+                return input, HmmerJob.InputChoices.HMM
 
     @classmethod
     def validate_msa(cls, input: str):
         try:
             with MSAFile(io.BytesIO(input.encode())) as fh:
                 fh.guess_alphabet()
-
-                while msa := fh.read():
-                    if msa is None:
-                        break
-
-                    if len(msa.alignment) == 0:
-                        raise ValueError()
         except ValueError:
             raise PydanticCustomError("invalid_input", "MSA is not valid")
 
-        return input, HmmerJob.InputChoices.MSA
+        with MSAFile(io.BytesIO(input.encode())) as fh:
+            msas = []
+            i = 0
+
+            while (msa := fh.read()) is not None:
+                msas.append(msa)
+
+                if len(msa.alignment) == 0:
+                    raise PydanticCustomError("invalid_input", f"MSA {i + 1} is not valid")
+
+                i += 1
+
+            if len(msas) > 1:
+                return input, HmmerJob.InputChoices.MULTI_MSA
+            else:
+                return input, HmmerJob.InputChoices.MSA
 
     @classmethod
     def validate_uuid(cls, input: str):

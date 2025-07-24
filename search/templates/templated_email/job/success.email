@@ -1,8 +1,8 @@
-{% block subject %}[HMMER] Job {{ job.id }} COMPLETED{% endblock %}
+{% block subject %}[HMMER] {{ job.algo|capfirst }} job {{ job.id }} COMPLETED{% endblock %}
 {% block html %}
     <p>Dear user,</p>
 
-    <p>Your job <a href="{{ result_url }}">{{ job.id }}</a> submitted on {{ job.date_submitted|date:"r" }} has completed successfully.</p>
+    <p>Your {{ job.algo }} job <a href="{{ result_url }}">{{ job.id }}</a> submitted on {{ job.date_submitted|date:"r" }} has completed successfully.</p>
 
     <p>Regards,<br>HMMER team</p>
 {% endblock %}

@@ -1,4 +1,5 @@
 import uuid
+import copy
 import datetime
 import os
 import io
@@ -381,6 +382,31 @@ class HmmerJob(AL_Node):
             self.mx = None
             self.popen = None
             self.pextend = None
+
+    def clone(self):
+        clone = copy.copy(self)
+        clone.id = None
+        clone.pk = None
+        clone.parent = None
+        clone._state.adding = True
+        clone.task = None
+        clone.annotation_task = None
+        clone.architecture_task = None
+        clone.taxonomy_tree_task = None
+        clone.taxonomy_distribution_task = None
+        clone.taxonomy_distribution_graph_task = None
+        clone.include = []
+        clone.exclude = []
+        clone.exclude_all = False
+        clone.result_path = None
+        clone.number_of_hits = None
+        clone.number_of_included = None
+        clone.number_of_gained = None
+        clone.number_of_dropped = None
+        clone.number_of_lost = None
+        clone.email_address = None
+
+        return clone
 
     def get_workflow(self, as_batch=False):
         if self.algo == self.AlgoChoices.JACKHMMER:

@@ -1,4 +1,3 @@
-import copy
 import io
 import logging
 from socket import gaierror
@@ -11,7 +10,8 @@ from django.core.files.base import ContentFile
 from django.core.files.storage import storages
 from django.db import transaction
 from templated_email import send_templated_mail
-from pyhmmer.easel import SequenceFile
+from pyhmmer.easel import SequenceFile, MSAFile
+from pyhmmer.plan7 import HMMFile
 
 from hmmerapi.celery import app
 from search.client import Client, HmmpgmdServerError
@@ -90,29 +90,9 @@ def schedule_next_iteration(self, job_id: str):
     if existing_job:
         existing_job.delete()
 
-    next_job = copy.copy(job)  # this is to create a copy
+    next_job = job.clone()
     next_job.input_type = HmmerJob.InputChoices.UUID
     next_job.input = job_id
-    next_job.id = None
-    next_job.pk = None
-    next_job.parent = None
-    next_job._state.adding = True
-    next_job.task = None
-    next_job.annotation_task = None
-    next_job.architecture_task = None
-    next_job.taxonomy_tree_task = None
-    next_job.taxonomy_distribution_task = None
-    next_job.taxonomy_distribution_graph_task = None
-    next_job.include = []
-    next_job.exclude = []
-    next_job.exclude_all = False
-    next_job.result_path = None
-    next_job.number_of_hits = None
-    next_job.number_of_included = None
-    next_job.number_of_gained = None
-    next_job.number_of_dropped = None
-    next_job.number_of_lost = None
-    next_job.email_address = None
 
     next_job = job.add_child(instance=next_job)
 
@@ -127,40 +107,54 @@ def schedule_batch_jobs(self, job_id: str):
 
     logger.debug(f"Creating child (batch) jobs from job {job_id}")
 
-    with SequenceFile(io.BytesIO(job.input.encode()), format="fasta") as fh:
-        block = fh.read_block()
+    if job.input_type == HmmerJob.InputChoices.MULTI_SEQUENCE:
+        with SequenceFile(io.BytesIO(job.input.encode()), format="fasta") as fh:
+            block = fh.read_block()
 
-        for sequence in block:
-            next_job = copy.copy(job)  # this is to create a copy
+            for sequence in block:
+                next_job = job.clone()
 
-            next_job.input_type = HmmerJob.InputChoices.SEQUENCE
-            next_job.input = f">{sequence.name.decode()} {sequence.description.decode()}\n{sequence.sequence}"
-            next_job.id = None
-            next_job.pk = None
-            next_job.parent = None
-            next_job._state.adding = True
-            next_job.task = None
-            next_job.annotation_task = None
-            next_job.architecture_task = None
-            next_job.taxonomy_tree_task = None
-            next_job.taxonomy_distribution_task = None
-            next_job.taxonomy_distribution_graph_task = None
-            next_job.include = []
-            next_job.exclude = []
-            next_job.exclude_all = False
-            next_job.result_path = None
-            next_job.number_of_hits = None
-            next_job.number_of_included = None
-            next_job.number_of_gained = None
-            next_job.number_of_dropped = None
-            next_job.number_of_lost = None
-            next_job.email_address = None
+                next_job.input_type = HmmerJob.InputChoices.SEQUENCE
+                next_job.input = f">{sequence.name.decode()} {sequence.description.decode()}\n{sequence.sequence}"
 
-            next_job = job.add_child(instance=next_job)
+                next_job = job.add_child(instance=next_job)
+                workflow = next_job.get_workflow(as_batch=True)
+                transaction.on_commit(lambda: workflow.delay())
 
-            workflow = next_job.get_workflow(as_batch=True)
+    elif job.input_type == HmmerJob.InputChoices.MULTI_HMM:
+        with HMMFile(io.BytesIO(job.input.encode())) as fh:
+            while (hmm := fh.read()) is not None:
+                next_job = job.clone()
 
-            transaction.on_commit(lambda: workflow.delay())
+                next_job.input_type = HmmerJob.InputChoices.HMM
+
+                with io.BytesIO() as hmm_fh:
+                    hmm.write(hmm_fh, binary=False)
+                    bytes = hmm_fh.getvalue()
+                    next_job.input = bytes.decode()
+
+                next_job = job.add_child(instance=next_job)
+                workflow = next_job.get_workflow(as_batch=True)
+                transaction.on_commit(lambda: workflow.delay())
+
+    elif job.input_type == HmmerJob.InputChoices.MULTI_MSA:
+        with MSAFile(io.BytesIO(job.input.encode())) as fh:
+            while (msa := fh.read()) is not None:
+                next_job = job.clone()
+
+                next_job.input_type = HmmerJob.InputChoices.MSA
+
+                with io.BytesIO() as msa_fh:
+                    msa.write(msa_fh, format=fh.format)
+                    bytes = msa_fh.getvalue()
+                    next_job.input = bytes.decode()
+
+                next_job = job.add_child(instance=next_job)
+                workflow = next_job.get_workflow(as_batch=True)
+                transaction.on_commit(lambda: workflow.delay())
+
+    else:
+        raise Exception(f"Cannot schedule batch job with input type '{job.input_type}'")
 
 
 @app.task(bind=True)
