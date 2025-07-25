@@ -63,6 +63,7 @@ class HmmerSettings(BaseSettings):
     result_threads: int = 4
 
     max_sequence_base_pairs: int = 10000
+    max_queries: int = 500
 
     model_config = SettingsConfigDict(env_prefix="HMMER_")
 

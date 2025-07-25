@@ -189,6 +189,11 @@ class SearchRequestSchema(ModelSchema):
         with SequenceFile(io.BytesIO(input_with_header.encode()), format="fasta") as fh:
             block = fh.read_block()
 
+            if len(block) > settings.HMMER.max_queries:
+                raise PydanticCustomError(
+                    "invalid_input", f"Input contains more than {settings.HMMER.max_queries} sequences"
+                )
+
             for i, sequence in enumerate(block):
                 if not sequence.sequence.strip():
                     raise PydanticCustomError("invalid_input", f"Sequence {i + 1} is not valid")
@@ -229,6 +234,11 @@ class SearchRequestSchema(ModelSchema):
 
                 i += 1
 
+            if len(hmms) > settings.HMMER.max_queries:
+                raise PydanticCustomError(
+                    "invalid_input", f"Input contains more than {settings.HMMER.max_queries} HMMs"
+                )
+
             if len(hmms) > 1:
                 return input, HmmerJob.InputChoices.MULTI_HMM
             else:
@@ -253,6 +263,11 @@ class SearchRequestSchema(ModelSchema):
                     raise PydanticCustomError("invalid_input", f"MSA {i + 1} is not valid")
 
                 i += 1
+
+            if len(msas) > settings.HMMER.max_queries:
+                raise PydanticCustomError(
+                    "invalid_input", f"Input contains more than {settings.HMMER.max_queries} MSAs"
+                )
 
             if len(msas) > 1:
                 return input, HmmerJob.InputChoices.MULTI_MSA
