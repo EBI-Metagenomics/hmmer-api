@@ -8,7 +8,7 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("database", type=str)
-        parser.add_argument("status", type=str, choices=Database.StatusChoices.values)
+        parser.add_argument("status", type=str, choices=["enable", "disable", "pause"])
 
     def handle(self, *args, **options):
         if options["database"] not in settings.HMMER.databases:
@@ -19,7 +19,13 @@ class Command(BaseCommand):
         except Database.DoesNotExist:
             raise CommandError(f"Entry for database '{options['database']}' not found")
 
-        database.status = options["status"]
+        if options["status"] == "enable":
+            database.status = Database.StatusChoices.ENABLED
+        elif options["status"] == "disable":
+            database.status = Database.StatusChoices.DISABLED
+        elif options["status"] == "pause":
+            database.status = Database.StatusChoices.PAUSED
+
         database.save()
 
-        self.stdout.write(f"Searches for database {options['database']} are {options['status']}")
+        self.stdout.write(f"Searches for database '{database.id}' are {database.status}")
