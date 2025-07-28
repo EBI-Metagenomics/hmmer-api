@@ -563,8 +563,14 @@ class Database(models.Model):
         SEQ = "seq"
         HMM = "hmm"
 
+    class StatusChoices(models.TextChoices):
+        ENABLED = "enabled"
+        DISABLED = "disabled"
+        PAUSED = "paused"
+
     id = models.CharField(max_length=32, primary_key=True, unique=True)
     type = models.CharField(max_length=16, choices=TypeChoices.choices, default=TypeChoices.SEQ)
+    status = models.CharField(max_length=16, choices=StatusChoices.choices, default=StatusChoices.ENABLED)
     name = models.CharField(max_length=32)
     version = models.CharField(max_length=32)
     release_date = models.DateField(default=datetime.date.today)
