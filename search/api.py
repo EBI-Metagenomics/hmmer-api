@@ -38,6 +38,7 @@ class DatabaseResponseSchema(ModelSchema):
 
 @router.get("/databases", response=List[DatabaseResponseSchema], tags=["search"])
 def get_databases(request):
+    # TODO: filter out enabled/paused databases only. Do a check on job submission as well
     return Database.objects.all().order_by("order")
 
 
