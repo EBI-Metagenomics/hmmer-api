@@ -16,7 +16,7 @@ from pyhmmer.plan7 import HMMFile
 from hmmerapi.celery import app
 from search.client import Client, HmmpgmdServerError
 from result.models import Result, HitsIndex
-from .models import HmmerJob
+from .models import HmmerJob, Database
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +29,13 @@ def run_search(self, job_id: str):
     task_result = TaskResult.objects.get(task_id=self.request.id)
     job.task = task_result
     job.save(update_fields=["task"])
+
+    if job.database.status == Database.StatusChoices.PAUSED:
+        raise self.retry(
+            exc=Exception(f"Searches for database '{job.database.id}' are paused"),
+            max_retries=settings.HMMER.max_retries,
+            countdown=settings.HMMER.retry_period_seconds,
+        )
 
     try:
         db_config = settings.HMMER.databases[job.database.id]
