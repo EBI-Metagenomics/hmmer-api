@@ -233,6 +233,9 @@ class SearchRequestSchema(ModelSchema):
                 except ValueError:
                     raise PydanticCustomError("invalid_input", f"HMM {i + 1} is not valid")
 
+                if hmm.consensus is None:
+                    raise PydanticCustomError("invalid_input", f"HMM {i + 1} does not have a consensus")
+
                 i += 1
 
             if len(hmms) > settings.HMMER.max_queries:
