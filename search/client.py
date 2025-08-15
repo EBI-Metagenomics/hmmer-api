@@ -42,6 +42,7 @@ class Client:
         self.close()
 
     def connect(self):
+        self.socket.settimeout(10)
         self.socket.connect((self.address, self.port))
 
     def close(self):
@@ -62,9 +63,10 @@ class Client:
             command = f"@{db_cmd} {parameters}\n{query}\n//"
 
         logger.debug(f"Sending command: {command}")
-
+        self.socket.settimeout(60)
         self.socket.sendall(command.encode("ascii"))
 
+        self.socket.settimeout(10 * 60)
         status_raw = self.socket.recv(HmmdSearchStatus.size())
         status = HmmdSearchStatus.from_bytes(status_raw)
 
