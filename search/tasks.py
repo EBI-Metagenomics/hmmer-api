@@ -60,7 +60,7 @@ def run_search(self, job_id: str):
         job.save(update_fields=["result_path"])
         transaction.on_commit(lambda: job.post_process())
 
-    except (HmmpgmdServerError, ConnectionError, gaierror) as e:
+    except (HmmpgmdServerError, ConnectionError, gaierror, TimeoutError) as e:
         logger.warning(e)
         storage.delete(f"{job.id}/hits.bin")
 
