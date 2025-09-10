@@ -343,7 +343,7 @@ def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequest
     else:
         job = HmmerJob(**body.dict(exclude_unset=True), algo=algo)
 
-        job.clean()
+        job.full_clean()
         job.save()
 
         request.session["job_ids"] = request.session.get("job_ids", []) + [str(job.id)]

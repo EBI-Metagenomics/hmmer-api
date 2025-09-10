@@ -1,27 +1,34 @@
-import uuid
+import concurrent.futures
 import copy
 import datetime
-import os
 import io
-import concurrent.futures
-import shutil
 import logging
-
+import os
+import shutil
+import uuid
 from pathlib import Path
-from typing import TextIO, Union, List
+from typing import List, TextIO, Union
+
+from celery import chain, group, signature, states
 from django.conf import settings
+from django.core.validators import MinValueValidator
 from django.db import models
 from django.db.models.signals import pre_delete
 from django.dispatch import receiver
 from django_celery_results.models import TaskResult
-from celery import signature, chain, group, states
-from pyhmmer.easel import SSIReader, TextSequence, TextSequenceBlock, SequenceFile, MSAFile
+from pyhmmer.easel import (
+    MSAFile,
+    SequenceFile,
+    SSIReader,
+    TextSequence,
+    TextSequenceBlock,
+)
 from pyhmmer.plan7 import HMMFile
-from treebeard.al_tree import AL_Node
-
-from result.models import Result, Restrictions, P7HitFlags, HmmdSearchStats
+from result.models import HmmdSearchStats, P7HitFlags, Restrictions, Result
 from taxonomy.models import Range
-from utils.functions import seq_to_hmm, msa_to_hmm, hmm_from_hmmpgmd
+from treebeard.al_tree import AL_Node
+from utils.functions import hmm_from_hmmpgmd, msa_to_hmm, seq_to_hmm
+from utils.validators import StrictMaxValueValidator, StrictMinValueValidator
 
 logger = logging.getLogger(__name__)
 
@@ -56,7 +63,9 @@ class HmmerJob(AL_Node):
         MULTI_MSA = "multi_msa"
 
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, unique=True)
-    task = models.OneToOneField(TaskResult, related_name="+", null=True, blank=True, on_delete=models.CASCADE)
+    task = models.OneToOneField(
+        TaskResult, related_name="+", null=True, blank=True, on_delete=models.CASCADE
+    )
     taxonomy_distribution_task = models.OneToOneField(
         TaskResult, related_name="+", null=True, blank=True, on_delete=models.CASCADE
     )
@@ -73,34 +82,78 @@ class HmmerJob(AL_Node):
         TaskResult, related_name="+", null=True, blank=True, on_delete=models.CASCADE
     )
 
-    algo = models.CharField(max_length=16, choices=AlgoChoices.choices, default=AlgoChoices.PHMMER)
-    database = models.ForeignKey("Database", on_delete=models.SET_NULL, related_name="+", null=True, blank=True)
+    algo = models.CharField(
+        max_length=16, choices=AlgoChoices.choices, default=AlgoChoices.PHMMER
+    )
+    database = models.ForeignKey(
+        "Database", on_delete=models.SET_NULL, related_name="+", null=True, blank=True
+    )
     input = models.TextField(null=True, blank=True)
-    input_type = models.CharField(max_length=16, choices=InputChoices.choices, default=InputChoices.SEQUENCE)
+    input_type = models.CharField(
+        max_length=16, choices=InputChoices.choices, default=InputChoices.SEQUENCE
+    )
     calculated_input = models.TextField(null=True, blank=True)
-    result_path = models.FilePathField(path=settings.HMMER.results_storage_location, null=True, blank=True)
-    hits_index_path = models.FilePathField(path=settings.HMMER.results_storage_location, null=True, blank=True)
+    result_path = models.FilePathField(
+        path=settings.HMMER.results_storage_location, null=True, blank=True
+    )
+    hits_index_path = models.FilePathField(
+        path=settings.HMMER.results_storage_location, null=True, blank=True
+    )
 
-    threshold = models.CharField(max_length=16, choices=ThresholdChoices.choices, default=ThresholdChoices.EVALUE)
-    E = models.FloatField(default=1.0, null=True, blank=True)
-    domE = models.FloatField(default=1.0, null=True, blank=True)
-    T = models.FloatField(default=7.0, null=True, blank=True)
-    domT = models.FloatField(default=5.0, null=True, blank=True)
-    incE = models.FloatField(default=0.01, null=True, blank=True)
-    incdomE = models.FloatField(default=0.03, null=True, blank=True)
-    incT = models.FloatField(default=25.0, null=True, blank=True)
-    incdomT = models.FloatField(default=22.0, null=True, blank=True)
-    taxonomy_ids = models.JSONField(default=list)
+    threshold = models.CharField(
+        max_length=16, choices=ThresholdChoices.choices, default=ThresholdChoices.EVALUE
+    )
+    E = models.FloatField(
+        default=1.0, null=True, blank=True, validators=[StrictMinValueValidator(0.0)]
+    )
+    domE = models.FloatField(
+        default=1.0, null=True, blank=True, validators=[StrictMinValueValidator(0.0)]
+    )
+    T = models.FloatField(
+        default=7.0, null=True, blank=True, validators=[StrictMinValueValidator(0.0)]
+    )
+    domT = models.FloatField(
+        default=5.0, null=True, blank=True, validators=[StrictMinValueValidator(0.0)]
+    )
+    incE = models.FloatField(
+        default=0.01, null=True, blank=True, validators=[StrictMinValueValidator(0.0)]
+    )
+    incdomE = models.FloatField(
+        default=0.03, null=True, blank=True, validators=[StrictMinValueValidator(0.0)]
+    )
+    incT = models.FloatField(
+        default=25.0, null=True, blank=True, validators=[StrictMinValueValidator(0.0)]
+    )
+    incdomT = models.FloatField(
+        default=22.0, null=True, blank=True, validators=[StrictMinValueValidator(0.0)]
+    )
+    taxonomy_ids = models.JSONField(default=list, blank=True)
 
-    popen = models.FloatField(default=0.02, null=True, blank=True)
-    pextend = models.FloatField(default=0.4, null=True, blank=True)
-    mx = models.CharField(max_length=16, null=True, blank=True, choices=MXChoices.choices, default=MXChoices.BLOSUM62)
+    popen = models.FloatField(
+        default=0.02,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0.0), StrictMaxValueValidator(0.5)],
+    )
+    pextend = models.FloatField(
+        default=0.4,
+        null=True,
+        blank=True,
+        validators=[MinValueValidator(0.0), StrictMaxValueValidator(1.0)],
+    )
+    mx = models.CharField(
+        max_length=16,
+        null=True,
+        blank=True,
+        choices=MXChoices.choices,
+        default=MXChoices.BLOSUM62,
+    )
 
     with_taxonomy = models.BooleanField(default=False)
     with_architecture = models.BooleanField(default=False)
 
-    include = models.JSONField(default=list)
-    exclude = models.JSONField(default=list)
+    include = models.JSONField(default=list, blank=True)
+    exclude = models.JSONField(default=list, blank=True)
     exclude_all = models.BooleanField(default=False)
     iterations = models.IntegerField(null=True, blank=True)
 
@@ -114,7 +167,14 @@ class HmmerJob(AL_Node):
 
     email_address = models.EmailField(null=True, blank=True, max_length=254)
 
-    parent = models.ForeignKey("self", related_name="children_set", null=True, db_index=True, on_delete=models.CASCADE)
+    parent = models.ForeignKey(
+        "self",
+        related_name="children_set",
+        null=True,
+        blank=True,
+        db_index=True,
+        on_delete=models.CASCADE,
+    )
     node_order_by = ["id"]
 
     def __init__(self, *args, **kwargs):
@@ -156,7 +216,7 @@ class HmmerJob(AL_Node):
             params = "--cut_ga"
 
         params += " ".join(
-            f"{'-' if field.name in ["E", "T"] else '--'}{field.name} {getattr(self, field.name)}"
+            f"{'-' if field.name in ['E', 'T'] else '--'}{field.name} {getattr(self, field.name)}"
             for field in HmmerJob._meta.get_fields()
             if field.name in fields_to_include and getattr(self, field.name) is not None
         )
@@ -165,7 +225,10 @@ class HmmerJob(AL_Node):
 
     @property
     def hmmpgmd_query(self) -> str:
-        if self.algo == HmmerJob.AlgoChoices.PHMMER or self.algo == HmmerJob.AlgoChoices.HMMSCAN:
+        if (
+            self.algo == HmmerJob.AlgoChoices.PHMMER
+            or self.algo == HmmerJob.AlgoChoices.HMMSCAN
+        ):
             return self.input
 
         if self.algo == HmmerJob.AlgoChoices.HMMSEARCH:
@@ -208,9 +271,11 @@ class HmmerJob(AL_Node):
         if len(self.taxonomy_ids) == 0:
             return ""
 
-        ranges = Range.objects.filter(database=self.database.id, taxonomy__id__in=self.taxonomy_ids)
+        ranges = Range.objects.filter(
+            database=self.database.id, taxonomy__id__in=self.taxonomy_ids
+        )
 
-        return f"--seqdb_ranges {", ".join([f'{range.start}..{range.end}' for range in ranges])}"
+        return f"--seqdb_ranges {', '.join([f'{range.start}..{range.end}' for range in ranges])}"
 
     @property
     def input_hmm(self) -> str:
@@ -300,7 +365,9 @@ class HmmerJob(AL_Node):
 
         if self.input_type == HmmerJob.InputChoices.SEQUENCE:
             try:
-                with SequenceFile(io.BytesIO(self.input.encode()), format="fasta") as fh:
+                with SequenceFile(
+                    io.BytesIO(self.input.encode()), format="fasta"
+                ) as fh:
                     sequence = fh.read()
                     return sequence.name.decode()
             except ValueError:
@@ -411,26 +478,54 @@ class HmmerJob(AL_Node):
     def get_workflow(self, as_batch=False):
         if self.algo == self.AlgoChoices.JACKHMMER:
             if self.iteration == 0:
-                return signature("search.tasks.schedule_next_iteration", args=(self.id,), immutable=True)
+                return signature(
+                    "search.tasks.schedule_next_iteration",
+                    args=(self.id,),
+                    immutable=True,
+                )
             else:
-                workflow = [signature("search.tasks.run_search", args=(self.id,), immutable=True)]
+                workflow = [
+                    signature(
+                        "search.tasks.run_search", args=(self.id,), immutable=True
+                    )
+                ]
 
-                subsequent_tasks = [signature("search.tasks.index_hits", args=(self.id,), immutable=True)]
+                subsequent_tasks = [
+                    signature(
+                        "search.tasks.index_hits", args=(self.id,), immutable=True
+                    )
+                ]
 
                 if self.with_taxonomy:
                     subsequent_tasks += [
-                        signature("taxonomy.tasks.build_taxonomy_tree", args=(self.id,), immutable=True),
-                        signature("taxonomy.tasks.build_taxonomy_distribution_graph", args=(self.id,), immutable=True),
+                        signature(
+                            "taxonomy.tasks.build_taxonomy_tree",
+                            args=(self.id,),
+                            immutable=True,
+                        ),
+                        signature(
+                            "taxonomy.tasks.build_taxonomy_distribution_graph",
+                            args=(self.id,),
+                            immutable=True,
+                        ),
                     ]
 
                 if self.with_architecture:
                     subsequent_tasks.append(
-                        signature("architecture.tasks.build_architecture", args=(self.id,), immutable=True)
+                        signature(
+                            "architecture.tasks.build_architecture",
+                            args=(self.id,),
+                            immutable=True,
+                        )
                     )
 
                 if self.is_batch_mode and self.iteration < self.iterations:
                     subsequent_tasks.append(
-                        signature("search.tasks.schedule_next_iteration", args=(self.id,), immutable=True)
+                        signature(
+                            "search.tasks.schedule_next_iteration",
+                            args=(self.id,),
+                            immutable=True,
+                        )
                     )
 
                 if subsequent_tasks:
@@ -438,37 +533,69 @@ class HmmerJob(AL_Node):
 
                 workflow_chain = chain(
                     *workflow,
-                    signature("search.tasks.notify_on_job_completion", args=(self.id,), immutable=True),
+                    signature(
+                        "search.tasks.notify_on_job_completion",
+                        args=(self.id,),
+                        immutable=True,
+                    ),
                 )
 
                 workflow_chain.link_error(
-                    signature("search.tasks.notify_on_job_completion", args=(self.id,), immutable=True)
+                    signature(
+                        "search.tasks.notify_on_job_completion",
+                        args=(self.id,),
+                        immutable=True,
+                    )
                 )
 
                 return workflow_chain
 
         else:
             if self.is_batch_mode:
-                return signature("search.tasks.schedule_batch_jobs", args=(self.id,), immutable=True)
+                return signature(
+                    "search.tasks.schedule_batch_jobs", args=(self.id,), immutable=True
+                )
 
             subsequent_tasks = []
 
             if self.algo != HmmerJob.AlgoChoices.HMMSCAN:
-                subsequent_tasks.append(signature("search.tasks.index_hits", args=(self.id,), immutable=True))
+                subsequent_tasks.append(
+                    signature(
+                        "search.tasks.index_hits", args=(self.id,), immutable=True
+                    )
+                )
 
             if self.algo != self.AlgoChoices.HMMSCAN and self.with_taxonomy:
                 subsequent_tasks += [
-                    signature("taxonomy.tasks.build_taxonomy_tree", args=(self.id,), immutable=True),
-                    signature("taxonomy.tasks.build_taxonomy_distribution_graph", args=(self.id,), immutable=True),
+                    signature(
+                        "taxonomy.tasks.build_taxonomy_tree",
+                        args=(self.id,),
+                        immutable=True,
+                    ),
+                    signature(
+                        "taxonomy.tasks.build_taxonomy_distribution_graph",
+                        args=(self.id,),
+                        immutable=True,
+                    ),
                 ]
 
             if self.algo != self.AlgoChoices.HMMSCAN and self.with_architecture:
                 subsequent_tasks += [
-                    signature("architecture.tasks.build_architecture", args=(self.id,), immutable=True)
+                    signature(
+                        "architecture.tasks.build_architecture",
+                        args=(self.id,),
+                        immutable=True,
+                    )
                 ]
 
             if self.algo != self.AlgoChoices.HMMSEARCH:
-                subsequent_tasks += [signature("architecture.tasks.build_annotation", args=(self.id,), immutable=True)]
+                subsequent_tasks += [
+                    signature(
+                        "architecture.tasks.build_annotation",
+                        args=(self.id,),
+                        immutable=True,
+                    )
+                ]
 
             workflow_chain = chain(
                 signature(
@@ -478,11 +605,19 @@ class HmmerJob(AL_Node):
                     queue="batch_queue" if as_batch else "io_bound_queue",
                 ),
                 group(*subsequent_tasks),
-                signature("search.tasks.notify_on_job_completion", args=(self.id,), immutable=True),
+                signature(
+                    "search.tasks.notify_on_job_completion",
+                    args=(self.id,),
+                    immutable=True,
+                ),
             )
 
             workflow_chain.link_error(
-                signature("search.tasks.notify_on_job_completion", args=(self.id,), immutable=True)
+                signature(
+                    "search.tasks.notify_on_job_completion",
+                    args=(self.id,),
+                    immutable=True,
+                )
             )
 
             return workflow_chain
@@ -500,13 +635,19 @@ class HmmerJob(AL_Node):
             if self.iteration > 1:
                 prev_job = self.get_parent()
 
-                prev_result, _ = Result.from_file(prev_job.result_path, with_domains=False, with_metadata=False)
-                prev_included_set = {int(hit.name) for hit in prev_result.hits if hit.is_included}
+                prev_result, _ = Result.from_file(
+                    prev_job.result_path, with_domains=False, with_metadata=False
+                )
+                prev_included_set = {
+                    int(hit.name) for hit in prev_result.hits if hit.is_included
+                }
                 del prev_result
             else:
                 prev_included_set = set()
 
-            result, _ = Result.from_file(self.result_path, with_domains=True, with_metadata=False)
+            result, _ = Result.from_file(
+                self.result_path, with_domains=True, with_metadata=False
+            )
             included_set = {int(hit.name) for hit in result.hits if hit.is_included}
             reported_set = {int(hit.name) for hit in result.hits if hit.is_reported}
 
@@ -516,11 +657,17 @@ class HmmerJob(AL_Node):
 
             for hit in result.hits:
                 if int(hit.name) in gained_set:
-                    hit.flags = P7HitFlags(P7HitFlags["IS_NEW"] | P7HitFlags["IS_INCLUDED"] | P7HitFlags["IS_REPORTED"])
+                    hit.flags = P7HitFlags(
+                        P7HitFlags["IS_NEW"]
+                        | P7HitFlags["IS_INCLUDED"]
+                        | P7HitFlags["IS_REPORTED"]
+                    )
                     hit.is_new = True
 
                 if int(hit.name) in dropped_set:
-                    hit.flags = P7HitFlags(P7HitFlags["IS_DROPPED"] | P7HitFlags["IS_REPORTED"])
+                    hit.flags = P7HitFlags(
+                        P7HitFlags["IS_DROPPED"] | P7HitFlags["IS_REPORTED"]
+                    )
                     hit.is_dropped = True
 
             first_gained_hit = next((hit for hit in result.hits if hit.is_new), None)
@@ -530,7 +677,9 @@ class HmmerJob(AL_Node):
             self.number_of_lost = len(lost_set)
             self.number_of_hits = result.stats.nreported
             self.number_of_included = result.stats.nincluded
-            self.first_gained_index = first_gained_hit.index if first_gained_hit is not None else None
+            self.first_gained_index = (
+                first_gained_hit.index if first_gained_hit is not None else None
+            )
 
             Result.to_file(result, self.result_path)
 
@@ -569,8 +718,12 @@ class Database(models.Model):
         PAUSED = "paused"
 
     id = models.CharField(max_length=32, primary_key=True, unique=True)
-    type = models.CharField(max_length=16, choices=TypeChoices.choices, default=TypeChoices.SEQ)
-    status = models.CharField(max_length=16, choices=StatusChoices.choices, default=StatusChoices.ENABLED)
+    type = models.CharField(
+        max_length=16, choices=TypeChoices.choices, default=TypeChoices.SEQ
+    )
+    status = models.CharField(
+        max_length=16, choices=StatusChoices.choices, default=StatusChoices.ENABLED
+    )
     name = models.CharField(max_length=32)
     version = models.CharField(max_length=32)
     release_date = models.DateField(default=datetime.date.today)
@@ -587,7 +740,10 @@ class SequenceFetcher:
         return fh.read(entry.record_length)
 
     def _fetch_sequence_chunk(self, keys: Union[List[str], List[int]]):
-        with SSIReader(f"{self.db_file}.ssi") as ssi_reader, open(self.db_file, "rt") as fh:
+        with (
+            SSIReader(f"{self.db_file}.ssi") as ssi_reader,
+            open(self.db_file, "rt") as fh,
+        ):
             return {key: self._fetch_sequence(fh, ssi_reader, key) for key in keys}
 
     def fetch_sequences(self, keys: List[int]):
@@ -598,9 +754,16 @@ class SequenceFetcher:
         all_sequences: dict[str | int, str] = {}
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
-            futures = [executor.submit(self._fetch_sequence_chunk, chunk) for chunk in chunks]
+            futures = [
+                executor.submit(self._fetch_sequence_chunk, chunk) for chunk in chunks
+            ]
 
             for future in concurrent.futures.as_completed(futures):
                 all_sequences.update(future.result())
 
-        return TextSequenceBlock([TextSequence(name=str(key).encode(), sequence=all_sequences[key]) for key in keys])
+        return TextSequenceBlock(
+            [
+                TextSequence(name=str(key).encode(), sequence=all_sequences[key])
+                for key in keys
+            ]
+        )
