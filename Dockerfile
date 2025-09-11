@@ -38,7 +38,7 @@ ENV CFLAGS="-fPIC"
 
 # setup HMMER library
 ARG HMMER_REPO=https://github.com/EBI-Metagenomics/hmmer
-ARG HMMER_BRANCH=hmmpgmd2msa-fix
+ARG HMMER_BRANCH=master
 ARG EASEL_REPO=https://github.com/EddyRivasLab/easel
 ARG EASEL_BRANCH=master
 
