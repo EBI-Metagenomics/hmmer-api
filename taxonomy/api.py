@@ -1,13 +1,15 @@
 import json
 import logging
 from typing import List, Optional
+
+from celery.states import PENDING, SUCCESS
 from django.contrib.postgres.search import SearchQuery
 from django.core.cache import cache
 from django.shortcuts import get_object_or_404
-from ninja import Router, ModelSchema, Schema, Field
-from celery.states import SUCCESS, PENDING
+from ninja import Field, ModelSchema, Router, Schema
 from search.models import HmmerJob
-from .models import Taxonomy, TaxonomyTree, TaxonomyDistributionGraph, Range
+
+from .models import Taxonomy, TaxonomyDistributionGraph, TaxonomyTree
 
 logger = logging.getLogger(__name__)
 
@@ -27,7 +29,7 @@ class TaxonomyTreeResponseSchema(Schema):
 class TaxonomyResponseSchema(ModelSchema):
     class Meta:
         model = Taxonomy
-        fields = ["id", "name", "rank"]
+        fields = ["id", "name", "rank", "lft", "rgt", "depth"]
 
 
 @router.get("", tags=["taxonomy"])
@@ -43,14 +45,13 @@ def search_taxonomy(request, q: str, database: str):
     except ValueError:
         numerical_query = None
 
-    queryset = Range.objects.select_related("taxonomy")
-    # queryset = Taxonomy.objects.filter(rank="species")
+    queryset = Taxonomy.objects.filter(range__database=database)
 
     if numerical_query is not None:
         if numerical_query < 1:
             return []
 
-        return [range.taxonomy for range in queryset.filter(database=database, taxonomy__id=numerical_query)]
+        return queryset.filter(id=numerical_query)
 
     if not q:
         return []
@@ -61,7 +62,7 @@ def search_taxonomy(request, q: str, database: str):
     for word in words[1:]:
         search_query &= SearchQuery(f"{word}:*", search_type="raw")
 
-    return [range.taxonomy for range in queryset.filter(database=database, taxonomy__search=search_query)]
+    return queryset.filter(search=search_query)
 
 
 @router.get("/{id}", response=TaxonomyResponseSchema, tags=["taxonomy"])
@@ -93,7 +94,11 @@ def get_taxonomy_tree(request, id: str):
         return {"status": SUCCESS, "tree": json.load(fh)}
 
 
-@router.get("/{uuid:id}/distribution", response=TaxonomyDistributionResponseSchema, tags=["taxonomy"])
+@router.get(
+    "/{uuid:id}/distribution",
+    response=TaxonomyDistributionResponseSchema,
+    tags=["taxonomy"],
+)
 def get_taxonomy_distribution(request, id: str):
     job = HmmerJob.objects.get(id=id)
 
