@@ -223,3 +223,6 @@ CELERY_TASK_TRACK_STARTED = True
 
 HMMER = _hmmer_config
 DJANGO = _django_config
+
+# Test settings
+TEST_RUNNER = "hmmerapi.testrunner.TestRunner"
