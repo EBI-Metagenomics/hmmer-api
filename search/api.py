@@ -92,9 +92,10 @@ class SearchRequestSchema(ModelSchema):
     input: str | UUID4
     input_type: Optional[str] = Field(default=None)
     database_id: Optional[str] = Field(default=None, alias="database")
-    taxonomy_ids: Optional[List[int]] = Field(default=[])
     include: Optional[List[int]] = Field(default=[])
     exclude: Optional[List[int]] = Field(default=[])
+    include_taxonomy: Optional[List[int]] = Field(default=[])
+    exclude_taxonomy: Optional[List[int]] = Field(default=[])
 
     @field_validator("input", mode="before")
     @classmethod

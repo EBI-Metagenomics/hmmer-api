@@ -2,6 +2,7 @@ import concurrent.futures
 import copy
 import datetime
 import io
+import itertools
 import logging
 import os
 import shutil
@@ -66,6 +67,9 @@ class HmmerJob(AL_Node):
     task = models.OneToOneField(
         TaskResult, related_name="+", null=True, blank=True, on_delete=models.CASCADE
     )
+    task = models.OneToOneField(
+        TaskResult, related_name="+", null=True, blank=True, on_delete=models.CASCADE
+    )
     taxonomy_distribution_task = models.OneToOneField(
         TaskResult, related_name="+", null=True, blank=True, on_delete=models.CASCADE
     )
@@ -88,11 +92,26 @@ class HmmerJob(AL_Node):
     database = models.ForeignKey(
         "Database", on_delete=models.SET_NULL, related_name="+", null=True, blank=True
     )
+    algo = models.CharField(
+        max_length=16, choices=AlgoChoices.choices, default=AlgoChoices.PHMMER
+    )
+    database = models.ForeignKey(
+        "Database", on_delete=models.SET_NULL, related_name="+", null=True, blank=True
+    )
     input = models.TextField(null=True, blank=True)
     input_type = models.CharField(
         max_length=16, choices=InputChoices.choices, default=InputChoices.SEQUENCE
     )
+    input_type = models.CharField(
+        max_length=16, choices=InputChoices.choices, default=InputChoices.SEQUENCE
+    )
     calculated_input = models.TextField(null=True, blank=True)
+    result_path = models.FilePathField(
+        path=settings.HMMER.results_storage_location, null=True, blank=True
+    )
+    hits_index_path = models.FilePathField(
+        path=settings.HMMER.results_storage_location, null=True, blank=True
+    )
     result_path = models.FilePathField(
         path=settings.HMMER.results_storage_location, null=True, blank=True
     )
@@ -749,7 +768,7 @@ class SequenceFetcher:
     def fetch_sequences(self, keys: List[int]):
         max_workers = 4
         chunk_size = 1000
-        chunks = [keys[i: i + chunk_size] for i in range(0, len(keys), chunk_size)]
+        chunks = itertools.batched(keys, chunk_size)
 
         all_sequences: dict[str | int, str] = {}
 
