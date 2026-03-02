@@ -146,7 +146,8 @@ class HmmerJob(AL_Node):
     incdomT = models.FloatField(
         default=22.0, null=True, blank=True, validators=[StrictMinValueValidator(0.0)]
     )
-    taxonomy_ids = models.JSONField(default=list, blank=True)
+    include_taxonomy = models.JSONField(default=list, blank=True)
+    exclude_taxonomy = models.JSONField(default=list, blank=True)
 
     popen = models.FloatField(
         default=0.02,
