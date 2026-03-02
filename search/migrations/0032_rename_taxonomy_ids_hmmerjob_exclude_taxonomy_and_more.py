@@ -6,7 +6,7 @@ from django.db import migrations, models
 class Migration(migrations.Migration):
 
     dependencies = [
-        ("search", "0030_hmmerjob_taxonomy_ids_alter_hmmerjob_input_type"),
+        ("search", "0031_database_status"),
     ]
 
     operations = [
