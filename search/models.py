@@ -2,6 +2,7 @@ import concurrent.futures
 import copy
 import datetime
 import io
+import itertools
 import logging
 import os
 import shutil
@@ -767,7 +768,7 @@ class SequenceFetcher:
     def fetch_sequences(self, keys: List[int]):
         max_workers = 4
         chunk_size = 1000
-        chunks = [keys[i : i + chunk_size] for i in range(0, len(keys), chunk_size)]
+        chunks = itertools.batched(keys, chunk_size)
 
         all_sequences: dict[str | int, str] = {}
 
