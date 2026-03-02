@@ -13,19 +13,19 @@ class Migration(migrations.Migration):
         migrations.AddField(
             model_name="taxonomy",
             name="depth",
-            field=models.PositiveIntegerField(db_index=True, default=None),
+            field=models.PositiveIntegerField(db_index=True, default=0),
             preserve_default=False,
         ),
         migrations.AddField(
             model_name="taxonomy",
             name="lft",
-            field=models.PositiveIntegerField(db_index=True, default=None),
+            field=models.PositiveIntegerField(db_index=True, default=0),
             preserve_default=False,
         ),
         migrations.AddField(
             model_name="taxonomy",
             name="rgt",
-            field=models.PositiveIntegerField(db_index=True, default=None),
+            field=models.PositiveIntegerField(db_index=True, default=0),
             preserve_default=False,
         ),
         migrations.AddField(
