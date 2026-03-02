@@ -288,14 +288,9 @@ class HmmerJob(AL_Node):
         if self.algo == HmmerJob.AlgoChoices.HMMSCAN:
             return ""
 
-        if len(self.taxonomy_ids) == 0:
-            return ""
-
-        ranges = Range.objects.filter(
-            database=self.database.id, taxonomy__id__in=self.taxonomy_ids
+        return Range.get_seqdb_ranges_from_taxonomy(
+            self.database.id, self.include_taxonomy, self.exclude_taxonomy
         )
-
-        return f"--seqdb_ranges {', '.join([f'{range.start}..{range.end}' for range in ranges])}"
 
     @property
     def input_hmm(self) -> str:
