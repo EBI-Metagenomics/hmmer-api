@@ -23,6 +23,8 @@ logger = logging.getLogger(__name__)
 
 router = Router()
 
+# This is a dummy comment
+
 
 class TaskResultSchema(ModelSchema):
     class Meta:
@@ -155,7 +157,9 @@ class SearchRequestSchema(ModelSchema):
                 HmmerJob.InputChoices.MULTI_HMM,
                 HmmerJob.InputChoices.MULTI_MSA,
             }:
-                raise PydanticCustomError("invalid_input", "Multiple queries are not allowed for jackhmmer")
+                raise PydanticCustomError(
+                    "invalid_input", "Multiple queries are not allowed for jackhmmer"
+                )
             elif input_type is None:
                 raise PydanticCustomError("invalid_input", "Invalid jackhmmer input")
             else:
@@ -173,17 +177,23 @@ class SearchRequestSchema(ModelSchema):
     @field_validator("iterations", mode="before", check_fields=False)
     @classmethod
     def validate_iterations(cls, value: int | None, info: ValidationInfo):
-        if value is not None and (value < 0 or value > settings.HMMER.jackhmmer_max_batch_iterations):
+        if value is not None and (
+            value < 0 or value > settings.HMMER.jackhmmer_max_batch_iterations
+        ):
             raise HttpError(400, "Number of iterations for jackhmmer is not valid")
 
         return value
 
     @classmethod
     def validate_sequence(cls, input: str):
-        input_with_header = input if input.startswith(">") else f">Unnamed query\n{input}"
+        input_with_header = (
+            input if input.startswith(">") else f">Unnamed query\n{input}"
+        )
 
         try:
-            with SequenceFile(io.BytesIO(input_with_header.encode()), format="fasta") as fh:
+            with SequenceFile(
+                io.BytesIO(input_with_header.encode()), format="fasta"
+            ) as fh:
                 fh.guess_alphabet()
         except ValueError:
             raise PydanticCustomError("invalid_input", "Sequence input is not valid")
@@ -193,21 +203,29 @@ class SearchRequestSchema(ModelSchema):
 
             if len(block) > settings.HMMER.max_queries:
                 raise PydanticCustomError(
-                    "invalid_input", f"Input contains more than {settings.HMMER.max_queries} sequences"
+                    "invalid_input",
+                    f"Input contains more than {settings.HMMER.max_queries} sequences",
                 )
 
             for i, sequence in enumerate(block):
                 if not sequence.sequence.strip():
-                    raise PydanticCustomError("invalid_input", f"Sequence {i + 1} is not valid")
+                    raise PydanticCustomError(
+                        "invalid_input", f"Sequence {i + 1} is not valid"
+                    )
 
-                if len(sequence.sequence.strip()) > settings.HMMER.max_sequence_base_pairs:
+                if (
+                    len(sequence.sequence.strip())
+                    > settings.HMMER.max_sequence_base_pairs
+                ):
                     raise PydanticCustomError(
                         "invalid_input",
                         f"Sequence {i + 1} is longer than {settings.HMMER.max_sequence_base_pairs} base pairs",
                     )
 
                 if sequence.accession is None:
-                    raise PydanticCustomError("invalid_input", f"Sequence {i + 1} has no valid accession")
+                    raise PydanticCustomError(
+                        "invalid_input", f"Sequence {i + 1} has no valid accession"
+                    )
 
             if len(block) > 1:
                 return input_with_header, HmmerJob.InputChoices.MULTI_SEQUENCE
@@ -232,16 +250,21 @@ class SearchRequestSchema(ModelSchema):
                 try:
                     hmm.validate()
                 except ValueError:
-                    raise PydanticCustomError("invalid_input", f"HMM {i + 1} is not valid")
+                    raise PydanticCustomError(
+                        "invalid_input", f"HMM {i + 1} is not valid"
+                    )
 
                 if hmm.consensus is None:
-                    raise PydanticCustomError("invalid_input", f"HMM {i + 1} does not have a consensus")
+                    raise PydanticCustomError(
+                        "invalid_input", f"HMM {i + 1} does not have a consensus"
+                    )
 
                 i += 1
 
             if len(hmms) > settings.HMMER.max_queries:
                 raise PydanticCustomError(
-                    "invalid_input", f"Input contains more than {settings.HMMER.max_queries} HMMs"
+                    "invalid_input",
+                    f"Input contains more than {settings.HMMER.max_queries} HMMs",
                 )
 
             if len(hmms) > 1:
@@ -265,13 +288,16 @@ class SearchRequestSchema(ModelSchema):
                 msas.append(msa)
 
                 if len(msa.alignment) == 0:
-                    raise PydanticCustomError("invalid_input", f"MSA {i + 1} is not valid")
+                    raise PydanticCustomError(
+                        "invalid_input", f"MSA {i + 1} is not valid"
+                    )
 
                 i += 1
 
             if len(msas) > settings.HMMER.max_queries:
                 raise PydanticCustomError(
-                    "invalid_input", f"Input contains more than {settings.HMMER.max_queries} MSAs"
+                    "invalid_input",
+                    f"Input contains more than {settings.HMMER.max_queries} MSAs",
                 )
 
             if len(msas) > 1:
@@ -290,7 +316,9 @@ class SearchRequestSchema(ModelSchema):
     @model_validator(mode="after")
     def validate_database_id_requirement(self):
         if self.input_type != HmmerJob.InputChoices.UUID and self.database_id is None:
-            raise PydanticCustomError("missing_database_id", "database is required when input is not a UUID4")
+            raise PydanticCustomError(
+                "missing_database_id", "database is required when input is not a UUID4"
+            )
 
         return self
 
@@ -322,10 +350,19 @@ class SearchResponseSchema(Schema):
     id: UUID4
 
 
-@router.post("/{algo}", response={200: SearchResponseSchema, 422: ValidationErrorSchema}, tags=["search"])
+@router.post(
+    "/{algo}",
+    response={200: SearchResponseSchema, 422: ValidationErrorSchema},
+    tags=["search"],
+)
 def search(request: HttpRequest, algo: HmmerJob.AlgoChoices, body: SearchRequestSchema):
-    if algo == HmmerJob.AlgoChoices.JACKHMMER and body.input_type == HmmerJob.InputChoices.UUID:
-        job = get_object_or_404(HmmerJob.objects.select_related("database", "parent"), id=body.input)
+    if (
+        algo == HmmerJob.AlgoChoices.JACKHMMER
+        and body.input_type == HmmerJob.InputChoices.UUID
+    ):
+        job = get_object_or_404(
+            HmmerJob.objects.select_related("database", "parent"), id=body.input
+        )
 
         job.include = body.include
         job.exclude = body.exclude
@@ -360,7 +397,9 @@ class SearchPatchSchema(Schema):
     email_address: Optional[EmailStr] = None
 
 
-@router.patch("/{uuid:id}", response={204: None, 422: ValidationErrorSchema}, tags=["search"])
+@router.patch(
+    "/{uuid:id}", response={204: None, 422: ValidationErrorSchema}, tags=["search"]
+)
 def update_search(request: HttpRequest, id: str, body: SearchPatchSchema):
     job = HmmerJob.objects.get(id=id)
     updated_fields = body.dict(exclude_unset=True)
@@ -386,4 +425,8 @@ class JobsResponseSchema(ModelSchema):
 def get_jobs(request):
     job_ids = request.session.get("job_ids", [])
 
-    return HmmerJob.objects.filter(id__in=job_ids).select_related("task").order_by("-date_submitted")
+    return (
+        HmmerJob.objects.filter(id__in=job_ids)
+        .select_related("task")
+        .order_by("-date_submitted")
+    )
