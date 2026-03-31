@@ -33,8 +33,8 @@ def run_search(self, job_id: str):
     if job.database.status == Database.StatusChoices.PAUSED:
         raise self.retry(
             exc=Exception(f"Searches for database '{job.database.id}' are paused"),
-            max_retries=settings.HMMER.max_retries,
-            countdown=settings.HMMER.retry_period_seconds,
+            max_retries=None,
+            countdown=settings.HMMER.paused_retry_period_seconds,
         )
 
     try:
