@@ -66,7 +66,7 @@ class Client:
         self.socket.settimeout(60)
         self.socket.sendall(command.encode("ascii"))
 
-        self.socket.settimeout(10 * 60)
+        self.socket.settimeout(30 * 60)
         status_raw = self.socket.recv(HmmdSearchStatus.size())
         status = HmmdSearchStatus.from_bytes(status_raw)
 
