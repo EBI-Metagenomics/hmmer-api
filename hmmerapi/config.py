@@ -7,7 +7,9 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 
 
 class DjangoSettings(BaseSettings):
-    secret_key: Optional[str] = "django-insecure-+es_-5afm=y4du+nt2ypvwiaxwo6iuf8!^qjq*jbkf^(46^&3r"
+    secret_key: Optional[str] = (
+        "django-insecure-+es_-5afm=y4du+nt2ypvwiaxwo6iuf8!^qjq*jbkf^(46^&3r"
+    )
     csrf_trusted_origins: List[str] = []
     base_url: str = ""  # for EBI use 'Tools/hmmer/' (no leading slash)
     host_url: str = "http://localhost:5173"
@@ -56,8 +58,9 @@ class HmmerSettings(BaseSettings):
     jackhmmer_max_iterations: int = 9
     jackhmmer_max_batch_iterations: int = 5
 
-    retry_period_seconds: int = 30 * 60
     max_retries: int = 6
+    retry_period_seconds: int = 30 * 60
+    paused_retry_period_seconds: int = 60 * 60
 
     result_chunk_size: int = 100
     result_threads: int = 4
