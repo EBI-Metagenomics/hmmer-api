@@ -96,6 +96,10 @@ class Client:
 
                 while bytes_read < status.message_size:
                     chunk = self.socket.recv(min(status.message_size - bytes_read, chunk_size))
+                    if not chunk:
+                        raise ConnectionResetError(
+                            f"Connection closed after {bytes_read}/{status.message_size} bytes"
+                        )
                     fh.write(chunk)
                     bytes_read += len(chunk)
 
@@ -111,6 +115,10 @@ class Client:
 
             while bytes_read < status.message_size:
                 chunk = self.socket.recv(min(status.message_size - bytes_read, chunk_size))
+                if not chunk:
+                    raise ConnectionResetError(
+                        f"Connection closed after {bytes_read}/{status.message_size} bytes"
+                    )
                 bytes_read += len(chunk)
                 data += chunk
 
