@@ -1,6 +1,7 @@
 import socket
 import logging
 import os
+import time
 from typing import Optional
 
 from result.models import HmmdSearchStatus, HmmpgmdStatus
@@ -67,8 +68,10 @@ class Client:
         self.socket.sendall(command.encode("ascii"))
 
         self.socket.settimeout(30 * 60)
+        t0 = time.monotonic()
         status_raw = self.socket.recv(HmmdSearchStatus.size())
         status = HmmdSearchStatus.from_bytes(status_raw)
+        logger.info(f"Status received in {time.monotonic() - t0:.1f}s, message_size={status.message_size}")
 
         if status.status != HmmpgmdStatus.OK:
             message = self.socket.recv(status.message_size)
@@ -84,21 +87,37 @@ class Client:
             else:
                 raise HmmpgmdServerError(status.status, decoded_message)
 
+        chunk_size = 65536
+
         if path is not None:
             with open(path, mode="wb") as fh:
                 bytes_read = 0
+                t0 = time.monotonic()
 
                 while bytes_read < status.message_size:
-                    chunk = self.socket.recv(min(status.message_size - bytes_read, 2048))
+                    chunk = self.socket.recv(min(status.message_size - bytes_read, chunk_size))
                     fh.write(chunk)
                     bytes_read += len(chunk)
+
+                elapsed = time.monotonic() - t0
+                logger.info(
+                    f"Data transfer complete: {bytes_read} bytes in {elapsed:.1f}s "
+                    f"({bytes_read / elapsed / 1e6:.1f} MB/s)"
+                )
         else:
             bytes_read = 0
             data = b""
+            t0 = time.monotonic()
 
             while bytes_read < status.message_size:
-                chunk = self.socket.recv(min(status.message_size - bytes_read, 2048))
+                chunk = self.socket.recv(min(status.message_size - bytes_read, chunk_size))
                 bytes_read += len(chunk)
                 data += chunk
+
+            elapsed = time.monotonic() - t0
+            logger.info(
+                f"Data transfer complete: {bytes_read} bytes in {elapsed:.1f}s "
+                f"({bytes_read / elapsed / 1e6:.1f} MB/s)"
+            )
 
             return data
