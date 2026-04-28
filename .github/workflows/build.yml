@@ -41,9 +41,10 @@ jobs:
             password: ${{ secrets.EBI_GITLAB_PASSWORD }}
 
       - name: Build Docker Image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
             push: true
             tags: ${{ steps.build-tags.outputs.tags }}
             cache-from: type=gha
             cache-to: type=gha,mode=max
+            provenance: false
