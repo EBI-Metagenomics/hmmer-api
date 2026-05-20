@@ -362,14 +362,14 @@ wheels = [
 
 [[package]]
 name = "django-unfold"
-version = "0.43.0"
+version = "0.94.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/59/2f/7e3c18f9c91f540bc01edd5ed8763e5d1eedcd2a36470d54c57d8f212de5/django_unfold-0.43.0.tar.gz", hash = "sha256:c1f2e4314b87db2f4d845f6507667404df8e33ea0e8f336d604c5863c9358031", size = 746364, upload-time = "2024-12-09T15:55:40.926Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/c5/26/d1e4f9ca3b23e020323c2b90ac57ac515acdfb6108fff47ad9354a47edd8/django_unfold-0.94.0.tar.gz", hash = "sha256:4c1f73b5371e8b45be548e520a9dc1b7b18e9de5bba65267784407776941f627", size = 1124721, upload-time = "2026-05-18T08:00:13.14Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d1/e4/97550447f35f2ee66b0ecce35ea70dab7ab525762e8c74231f243c379bcb/django_unfold-0.43.0-py3-none-any.whl", hash = "sha256:e60252393fadd76b6a2c90437512bac92c9a1c5d162d8df3bc13ebd401226181", size = 814453, upload-time = "2024-12-09T15:55:39.445Z" },
+    { url = "https://files.pythonhosted.org/packages/d9/fe/a064bb7195d0d50890c15562d7257646d1bce9240545af7c0e2a48fab408/django_unfold-0.94.0-py3-none-any.whl", hash = "sha256:89de4e1fe3be3477358afa92aa847940ca250e05e88724dd78f7e9499dccda0e", size = 1250343, upload-time = "2026-05-18T08:00:15.342Z" },
 ]
 
 [[package]]
@@ -564,7 +564,7 @@ requires-dist = [
     { name = "django-prometheus", specifier = ">=2.3.1" },
     { name = "django-templated-email", specifier = ">=3.0.1" },
     { name = "django-treebeard", specifier = ">=4.7.1" },
-    { name = "django-unfold", specifier = ">=0.43.0" },
+    { name = "django-unfold", specifier = ">=0.94.0" },
     { name = "email-validator", specifier = ">=2.2.0" },
     { name = "flower", specifier = ">=2.0.1" },
     { name = "gevent", specifier = ">=25.4.2" },
