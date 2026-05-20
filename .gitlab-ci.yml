@@ -5,6 +5,7 @@ include:
 - template: Jobs/Dependency-Scanning.latest.gitlab-ci.yml
 - template: Jobs/SAST.gitlab-ci.yml
 - template: Jobs/Secret-Detection.gitlab-ci.yml
+- template: Jobs/Container-Scanning.gitlab-ci.yml
 
 variables:
   DS_ENFORCE_NEW_ANALYZER: 'true'
