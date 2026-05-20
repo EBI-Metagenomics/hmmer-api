@@ -59,4 +59,4 @@ class GetSeqdbRangesFromTaxonomyTests(TestCase):
         result = Range.get_seqdb_ranges_from_taxonomy(
             self.db, include=[], exclude=[2157]
         )
-        self.assertEqual("--seqdb_ranges 1..400, 701..1000", result)
+        self.assertEqual("--seqdb_ranges 1..400,701..1000", result)
