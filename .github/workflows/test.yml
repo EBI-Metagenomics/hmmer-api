@@ -31,4 +31,4 @@ jobs:
         run: uv run --frozen python manage.py check
 
       - name: Run tests
-        run: uv run --frozen python manage.py test --verbosity=2
+        run: uv run --frozen pytest -v
