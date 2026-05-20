@@ -29,3 +29,5 @@ container_scanning:
     CS_IMAGE: "dockerhub.ebi.ac.uk/microbiome-informatics/containers/hmmer-api:production-latest"
     CS_REGISTRY_USER: "$REGISTRY_RO_USER"
     CS_REGISTRY_PASSWORD: "$REGISTRY_RO_PASSWORD"
+    CS_DOCKERFILE_PATH: "Dockerfile"
+    GIT_STRATEGY: fetch
