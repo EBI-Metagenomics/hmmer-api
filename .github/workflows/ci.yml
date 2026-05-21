@@ -11,7 +11,6 @@ permissions:
   contents: read
 
 env:
-  IMAGE_REPO: dockerhub.ebi.ac.uk/microbiome-informatics/containers/hmmer-api
   MANIFEST_BRANCH: main
 
 jobs:
@@ -33,7 +32,7 @@ jobs:
         id: meta
         uses: docker/metadata-action@v6
         with:
-          images: ${{ env.IMAGE_REPO }}
+          images: ${{ vars.IMAGE_REPO }}
           tags: |
             type=sha,prefix=main-,enable=${{ github.ref == 'refs/heads/main' }}
             type=sha,prefix=dev-,enable=${{ github.ref == 'refs/heads/development' }}
@@ -91,7 +90,7 @@ jobs:
         working-directory: ${{ steps.overlay.outputs.path }}
         run: |
           kustomize edit set image \
-            "${{ env.IMAGE_REPO }}=${{ env.IMAGE_REPO }}:${{ needs.build.outputs.sha_tag }}"
+            "${{ vars.IMAGE_REPO }}=${{ vars.IMAGE_REPO }}:${{ needs.build.outputs.sha_tag }}"
 
       - name: Commit and push
         run: |
