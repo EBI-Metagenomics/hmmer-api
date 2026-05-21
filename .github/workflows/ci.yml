@@ -34,8 +34,8 @@ jobs:
         with:
           images: ${{ vars.IMAGE_REPO }}
           tags: |
-            type=sha,prefix=main-,enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha,prefix=dev-,enable=${{ github.ref == 'refs/heads/development' }}
+            type=sha,prefix=main-,priority=300,enable=${{ github.ref == 'refs/heads/main' }}
+            type=sha,prefix=dev-,priority=300,enable=${{ github.ref == 'refs/heads/development' }}
             type=raw,value=production-latest,enable=${{ github.ref == 'refs/heads/main' }}
             type=raw,value=development-latest,enable=${{ github.ref == 'refs/heads/development' }}
 
