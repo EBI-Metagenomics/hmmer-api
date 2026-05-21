@@ -32,7 +32,6 @@ dependencies = [
     "flower>=2.0.1",
     "psycopg2-binary>=2.9.12",
     "portion>=2.6.1",
-    "testcontainers[postgres,redis]>=4.14.1",
 ]
 
 [dependency-groups]
@@ -40,7 +39,20 @@ dev = [
     "black>=26.5.1",
     "flake8-pyproject>=1.2.4",
     "flake8>=7.1.1",
+    "pytest>=8.3.0",
+    "pytest-django>=4.9.0",
+    "factory-boy>=3.3.0",
+    "freezegun>=1.5.0",
+    "testcontainers[postgres,redis]>=4.14.1",
 ]
 
 [tool.black]
 line-length = 120
+
+[tool.pytest.ini_options]
+DJANGO_SETTINGS_MODULE = "hmmerapi.settings"
+python_files = ["tests.py", "test_*.py", "*_tests.py"]
+python_classes = ["Test*", "*Tests", "*TestCase"]
+python_functions = ["test_*"]
+addopts = "--tb=short --strict-markers --import-mode=importlib"
+markers = ["worker: tests that require a real Celery worker (no eager mode)"]
