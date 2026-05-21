@@ -173,4 +173,8 @@ class TestGetJobs:
         )
         response = client.get(f"{BASE_URL}")
         assert response.status_code == 200
-        assert len(response.json()) == 1
+
+        json_response = response.json()
+        assert len(json_response) == 1
+
+        assert json_response[0]["query_name"] == "test_seq"
