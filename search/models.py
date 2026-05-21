@@ -384,7 +384,7 @@ class HmmerJob(AL_Node):
                     io.BytesIO(self.input.encode()), format="fasta"
                 ) as fh:
                     sequence = fh.read()
-                    return sequence.name.decode()
+                    return sequence.name
             except ValueError:
                 return "unknown"
         if self.input_type == HmmerJob.InputChoices.MSA:
@@ -392,7 +392,7 @@ class HmmerJob(AL_Node):
                 with MSAFile(io.BytesIO(self.input.encode())) as fh:
                     msa = fh.read()
                     if msa.name is not None:
-                        return msa.name.decode()
+                        return msa.name
                     else:
                         return "unnamed MSA"
             except ValueError:
@@ -402,7 +402,7 @@ class HmmerJob(AL_Node):
                 with HMMFile(io.BytesIO(self.input.encode())) as fh:
                     hmm = fh.read()
                     if hmm.name is not None:
-                        return hmm.name.decode()
+                        return hmm.name
                     else:
                         return "unnamed HMM"
             except ValueError:
