@@ -712,7 +712,7 @@ dev = [
     { name = "freezegun", specifier = ">=1.5.0,<2.0" },
     { name = "pytest", specifier = ">=8.3.0,<9.0" },
     { name = "pytest-django", specifier = ">=4.9.0,<5.0" },
-    { name = "testcontainers", extras = ["postgres", "redis"], specifier = ">=4.14.1,<5.0" },
+    { name = "testcontainers", extras = ["postgres", "redis"], specifier = ">=4.14.2,<5.0" },
 ]
 
 [[package]]
