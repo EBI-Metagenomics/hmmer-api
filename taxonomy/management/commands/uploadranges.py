@@ -2,6 +2,7 @@ from io import StringIO
 from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connection
+from psycopg2 import sql
 
 REQUIRED_COLUMNS = {"taxonomy_id", "start", "end"}
 TABLE_NAME = "taxonomy_range"
@@ -34,7 +35,10 @@ class Command(BaseCommand):
 
             self.stdout.write(self.style.WARNING(f"Deleting existing range records for database {database}..."))
             self.stdout.flush()
-            cursor.execute(f'DELETE FROM {TABLE_NAME} WHERE "database" = %s', (database,))
+            cursor.execute(
+                sql.SQL('DELETE FROM {} WHERE "database" = %s').format(sql.Identifier(TABLE_NAME)),
+                (database,),
+            )
 
             self.stdout.write(f"Inserting rows into {self.style.SQL_TABLE(TABLE_NAME)}")
             self.stdout.flush()

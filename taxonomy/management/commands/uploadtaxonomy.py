@@ -1,5 +1,4 @@
 import csv
-import os
 from io import StringIO
 from collections import defaultdict
 from django.core.management.base import BaseCommand
@@ -7,6 +6,9 @@ from django.db import connection
 from pathlib import Path
 from typing import Dict, Tuple, List
 from concurrent.futures import ThreadPoolExecutor
+from psycopg2 import sql
+
+TABLE_NAME = "taxonomy_taxonomy"
 
 
 class Command(BaseCommand):
@@ -17,13 +19,6 @@ class Command(BaseCommand):
             "taxdump",
             type=str,
             help="path to the taxdump directory (containing nodes.dmp and names.dmp)",
-        )
-
-        parser.add_argument(
-            "--table",
-            type=str,
-            default="taxonomy_taxonomy",
-            help="name of the taxonomy table",
         )
 
     def read_names(self, names_path: Path):
@@ -114,17 +109,15 @@ class Command(BaseCommand):
             csv_fh.seek(0)
 
             with connection.cursor() as cursor:
-                self.stdout.write(
-                    f"Truncating table {self.style.SQL_TABLE(options['table'])}"
+                self.stdout.write(f"Truncating table {self.style.SQL_TABLE(TABLE_NAME)}")
+                cursor.execute(
+                    sql.SQL("TRUNCATE {} CASCADE;").format(sql.Identifier(TABLE_NAME))
                 )
-                cursor.execute(f"TRUNCATE {options['table']} CASCADE;")
 
-                self.stdout.write(
-                    f"Inserting rows into {self.style.SQL_TABLE(options['table'])}"
-                )
+                self.stdout.write(f"Inserting rows into {self.style.SQL_TABLE(TABLE_NAME)}")
                 cursor.copy_from(
                     csv_fh,
-                    options["table"],
+                    TABLE_NAME,
                     sep="|",
                     columns=("id", "rank", "name", "parent_id", "lft", "rgt", "depth", "tree_id"),
                 )
