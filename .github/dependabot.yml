@@ -6,14 +6,14 @@ updates:
     schedule:
       interval: "weekly"
     groups:
-      django-patches:
+      django-minor-and-patch:
         applies-to: version-updates
         patterns:
           - "dj*"
         update-types:
           - "minor"
           - "patch"
-      other-patches:
+      python-patch:
         applies-to: version-updates
         patterns:
           - "*"
@@ -21,6 +21,20 @@ updates:
           - "dj*"
         update-types:
           - "patch"
+      python-minor:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        exclude-patterns:
+          - "dj*"
+        update-types:
+          - "minor"
+      python-major:
+        applies-to: version-updates
+        patterns:
+          - "*"
+        update-types:
+          - "major"
 
   - package-ecosystem: "github-actions"
     directory: "/"
