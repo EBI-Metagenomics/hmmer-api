@@ -210,10 +210,10 @@ else:
 BASE_URL = _django_config.base_url
 BUILD_HTTPS_DOWNLOAD_URLS = _django_config.build_https_download_urls
 CSRF_TRUSTED_ORIGINS = _django_config.csrf_trusted_origins
+CORS_ALLOWED_ORIGINS = _django_config.cors_allowed_origins
 
-# TODO: revise this
-CORS_ALLOW_ALL_ORIGINS = True
-CORS_ALLOW_CREDENTIALS = True
+CORS_ALLOW_ALL_ORIGINS = False
+CORS_ALLOW_CREDENTIALS = bool(CORS_ALLOWED_ORIGINS)
 ALLOWED_HOSTS += ["*"]
 SESSION_COOKIE_SAMESITE = "None"
 SESSION_COOKIE_SECURE = True  # Required when SameSite is 'None'
