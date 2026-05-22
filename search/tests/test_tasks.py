@@ -1,4 +1,5 @@
 import json
+import io
 import shutil
 import uuid
 from pathlib import Path
@@ -7,11 +8,40 @@ from unittest.mock import patch
 import pytest
 from django.core.files.base import ContentFile
 from django_celery_results.models import TaskResult
+from pyhmmer.easel import MSAFile
+from pyhmmer.plan7 import HMMFile
 
 from conftest import apply_task
 from search.models import Database, HmmerJob
-from search.tasks import index_hits, notify_on_job_completion, run_search, schedule_next_iteration
+from search.tasks import (
+    index_hits,
+    notify_on_job_completion,
+    run_search,
+    schedule_batch_jobs,
+    schedule_next_iteration,
+)
 from search.tests.factories import DatabaseFactory, HmmerJobFactory
+from utils.functions import seq_to_hmm
+
+
+def _serialize_hmms(input_text):
+    hmms = []
+    with HMMFile(io.BytesIO(input_text.encode())) as fh:
+        while (hmm := fh.read()) is not None:
+            with io.BytesIO() as out:
+                hmm.write(out, binary=False)
+                hmms.append(out.getvalue().decode())
+    return hmms
+
+
+def _serialize_msas(input_text):
+    msas = []
+    with MSAFile(io.BytesIO(input_text.encode())) as fh:
+        while (msa := fh.read()) is not None:
+            with io.BytesIO() as out:
+                msa.write(out, format=fh.format)
+                msas.append(out.getvalue().decode())
+    return msas
 
 
 @pytest.fixture
@@ -93,6 +123,121 @@ class TestScheduleNextIteration:
         schedule_next_iteration.apply(args=[str(job.id)])
         job.refresh_from_db()
         assert job.get_children_count() == 0
+
+    def test_replaces_existing_child_and_preserves_root_relationship(self, db, settings, pdb_database, hmmer_pdb_settings, tmp_storage):
+        settings.HMMER.jackhmmer_max_iterations = 9
+        job = HmmerJobFactory(
+            database=pdb_database,
+            algo=HmmerJob.AlgoChoices.JACKHMMER,
+        )
+        first_child = job.add_child(
+            instance=HmmerJob(
+                database=pdb_database,
+                algo=HmmerJob.AlgoChoices.JACKHMMER,
+                input_type=HmmerJob.InputChoices.UUID,
+                input=str(job.id),
+            )
+        )
+
+        with patch("celery.canvas.Signature.delay"):
+            schedule_next_iteration.apply(args=[str(job.id)])
+
+        job.refresh_from_db()
+        children = list(job.get_children())
+
+        assert len(children) == 1
+        assert children[0].id != first_child.id
+        assert children[0].get_root().id == job.id
+        assert children[0].get_parent().id == job.id
+
+
+@pytest.mark.django_db(transaction=True)
+class TestScheduleBatchJobs:
+    def test_creates_child_jobs_under_batch_root_in_id_order(self, pdb_database, hmmer_pdb_settings):
+        job = HmmerJobFactory(
+            database=pdb_database,
+            input_type=HmmerJob.InputChoices.MULTI_SEQUENCE,
+            input=">seq_b second\nBBBB\n>seq_a\nAAAA\n",
+        )
+
+        with patch("celery.canvas.Signature.delay"):
+            schedule_batch_jobs.apply(args=[str(job.id)])
+
+        job.refresh_from_db()
+        children = list(job.get_children())
+
+        assert len(children) == 2
+        assert [child.id for child in children] == sorted(child.id for child in children)
+        assert [child.input_type for child in children] == [HmmerJob.InputChoices.SEQUENCE] * 2
+        assert [child.get_root().id for child in children] == [job.id, job.id]
+        assert [child.get_parent().id for child in children] == [job.id, job.id]
+        assert {child.input for child in children} == {">seq_a\nAAAA", ">seq_b second\nBBBB"}
+
+    def test_splits_multi_hmm_into_single_hmm_children(self, pdb_database, hmmer_pdb_settings):
+        combined_hmms = (
+            seq_to_hmm(">hmm_one\nACDEFGHIK\n")
+            + "\n"
+            + seq_to_hmm(">hmm_two\nLMNPQRSTV\n")
+        )
+        expected_hmms = _serialize_hmms(combined_hmms)
+        job = HmmerJobFactory(
+            database=pdb_database,
+            input_type=HmmerJob.InputChoices.MULTI_HMM,
+            input=combined_hmms,
+        )
+
+        with patch("celery.canvas.Signature.delay"):
+            schedule_batch_jobs.apply(args=[str(job.id)])
+
+        job.refresh_from_db()
+        children = list(job.get_children())
+
+        assert len(children) == 2
+        assert [child.input_type for child in children] == [HmmerJob.InputChoices.HMM] * 2
+        assert [child.get_root().id for child in children] == [job.id, job.id]
+        assert [child.get_parent().id for child in children] == [job.id, job.id]
+        assert {child.input for child in children} == set(expected_hmms)
+        assert all(child.input.count("HMMER") == 1 for child in children)
+
+    def test_splits_multi_msa_into_single_msa_children(self, pdb_database, hmmer_pdb_settings):
+        combined_msas = """# STOCKHOLM 1.0
+seq_b/1-4 ACDE
+seq_b2/1-4 AC-E
+//
+# STOCKHOLM 1.0
+seq_a/1-4 LMNP
+seq_a2/1-4 LM-P
+//
+"""
+        expected_msas = _serialize_msas(combined_msas)
+        job = HmmerJobFactory(
+            database=pdb_database,
+            input_type=HmmerJob.InputChoices.MULTI_MSA,
+            input=combined_msas,
+        )
+
+        with patch("celery.canvas.Signature.delay"):
+            schedule_batch_jobs.apply(args=[str(job.id)])
+
+        job.refresh_from_db()
+        children = list(job.get_children())
+
+        assert len(children) == 2
+        assert [child.input_type for child in children] == [HmmerJob.InputChoices.MSA] * 2
+        assert [child.get_root().id for child in children] == [job.id, job.id]
+        assert [child.get_parent().id for child in children] == [job.id, job.id]
+        assert {child.input for child in children} == set(expected_msas)
+        assert all(child.input.count("# STOCKHOLM 1.0") == 1 for child in children)
+
+    def test_rejects_non_batch_input_type(self, pdb_database, hmmer_pdb_settings):
+        job = HmmerJobFactory(
+            database=pdb_database,
+            input_type=HmmerJob.InputChoices.SEQUENCE,
+            input=">seq_a\nAAAA\n",
+        )
+
+        with pytest.raises(Exception, match="Cannot schedule batch job with input type 'sequence'"):
+            schedule_batch_jobs.apply(args=[str(job.id)])
 
 
 @pytest.mark.django_db(transaction=True)

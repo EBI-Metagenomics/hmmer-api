@@ -25,6 +25,28 @@ _django_config = DjangoSettings(_env_file=_config_env)
 _hmmer_config = HmmerSettings(_env_file=_config_env)
 _celery_config = CelerySettings(_env_file=_config_env)
 
+
+def build_databases(django_config: DjangoSettings) -> dict[str, dict]:
+    if django_config.database_url is not None:
+        return {
+            "default": dj_database_url.parse(
+                django_config.database_url,
+                conn_max_age=600,
+                conn_health_checks=True,
+            )
+        }
+
+    return {
+        "default": {
+            "ENGINE": "django.db.backends.postgresql",
+            "NAME": django_config.database_name,
+            "USER": django_config.database_user,
+            "PASSWORD": django_config.database_password,
+            "HOST": django_config.database_host,
+            "PORT": django_config.database_port,
+        }
+    }
+
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.0/howto/deployment/checklist/
 
@@ -90,25 +112,7 @@ WSGI_APPLICATION = "hmmerapi.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.0/ref/settings/#databases
 
-if _django_config.database_url is not None:
-    DATABASES = {
-        "default": dj_database_url.parse(
-            _django_config.database_url,
-            conn_max_age=600,
-            conn_health_checks=True,
-        )
-    }
-else:
-    DATABASES = {
-        "default": {
-            "ENGINE": "django.db.backends.postgresql",
-            "NAME": _django_config.database_name,
-            "USER": _django_config.database_user,
-            "PASSWORD": _django_config.database_password,
-            "HOST": _django_config.database_host,
-            "PORT": _django_config.database_port,
-        }
-    }
+DATABASES = build_databases(_django_config)
 
 CACHE = {
     "default": django_cache_url.parse(_django_config.cache_url),
