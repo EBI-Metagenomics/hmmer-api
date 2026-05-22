@@ -31,5 +31,8 @@ jobs:
       - name: Check Django configuration
         run: uv run --frozen python manage.py check
 
+      - name: Check Gunicorn configuration
+        run: uv run --frozen gunicorn --check-config hmmerapi.wsgi
+
       - name: Run tests
         run: uv run --frozen pytest -v

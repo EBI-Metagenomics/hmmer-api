@@ -122,7 +122,10 @@ def schedule_batch_jobs(self, job_id: str):
                 next_job = job.clone()
 
                 next_job.input_type = HmmerJob.InputChoices.SEQUENCE
-                next_job.input = f">{sequence.name.decode()} {sequence.description.decode()}\n{sequence.sequence}"
+                next_job.input = f">{sequence.name}"
+                if sequence.description:
+                    next_job.input += f" {sequence.description}"
+                next_job.input += f"\n{sequence.sequence}"
 
                 next_job = job.add_child(instance=next_job)
                 workflow = next_job.get_workflow(as_batch=True)
@@ -137,8 +140,8 @@ def schedule_batch_jobs(self, job_id: str):
 
                 with io.BytesIO() as hmm_fh:
                     hmm.write(hmm_fh, binary=False)
-                    bytes = hmm_fh.getvalue()
-                    next_job.input = bytes.decode()
+                    hmm_bytes = hmm_fh.getvalue()
+                    next_job.input = hmm_bytes.decode()
 
                 next_job = job.add_child(instance=next_job)
                 workflow = next_job.get_workflow(as_batch=True)
@@ -153,8 +156,8 @@ def schedule_batch_jobs(self, job_id: str):
 
                 with io.BytesIO() as msa_fh:
                     msa.write(msa_fh, format=fh.format)
-                    bytes = msa_fh.getvalue()
-                    next_job.input = bytes.decode()
+                    msa_bytes = msa_fh.getvalue()
+                    next_job.input = msa_bytes.decode()
 
                 next_job = job.add_child(instance=next_job)
                 workflow = next_job.get_workflow(as_batch=True)
