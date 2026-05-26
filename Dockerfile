@@ -1,4 +1,4 @@
-FROM ghcr.io/astral-sh/uv:python3.13-bookworm AS builder
+FROM ghcr.io/astral-sh/uv:python3.14-trixie-slim AS builder
 
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy
 
@@ -15,23 +15,13 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-dev
 
 
-FROM python:3.13-bookworm
+FROM python:3.14-slim-trixie AS hmmer-builder
 
-# This is to enable NFS share access
-ENV USER=docker
-ENV UID=4050
-ENV GID=1223
-RUN addgroup --gid "$GID" "$USER" \
-  && adduser \
-  --disabled-password \
-  --gecos "" \
-  --home "$(pwd)" \
-  --ingroup "$USER" \
-  --no-create-home \
-  --uid "$UID" \
-  "$USER"
-
-COPY --from=builder --chown=app:app /app /app
+RUN apt-get update
+RUN apt-get install -y --no-install-recommends \
+  git \
+  autoconf \
+  build-essential
 
 ENV LD_LIBRARY_PATH=/usr/local/lib
 ENV CFLAGS="-fPIC"
@@ -43,9 +33,9 @@ ARG EASEL_REPO=https://github.com/EddyRivasLab/easel
 ARG EASEL_BRANCH=master
 
 WORKDIR /opt
-RUN git clone -b ${HMMER_BRANCH} ${HMMER_REPO}
+RUN git clone --depth 1 -b ${HMMER_BRANCH} ${HMMER_REPO}
 WORKDIR /opt/hmmer
-RUN git clone -b ${EASEL_BRANCH} ${EASEL_REPO}
+RUN git clone --depth 1 -b ${EASEL_BRANCH} ${EASEL_REPO}
 
 RUN autoconf && ./configure
 RUN make -j8
@@ -77,6 +67,25 @@ RUN gcc -g -fPIC -shared \
   easel/*.o \
   libdivsufsort/*.o \
   -lpthread -lm
+
+FROM python:3.14-slim-trixie
+
+# This is to enable NFS share access
+ENV USER=docker
+ENV UID=4050
+ENV GID=1223
+RUN addgroup --gid "$GID" "$USER" \
+  && adduser \
+  --disabled-password \
+  --gecos "" \
+  --home "$(pwd)" \
+  --ingroup "$USER" \
+  --no-create-home \
+  --uid "$UID" \
+  "$USER"
+
+COPY --from=builder --chown=app:app /app /app
+COPY --from=hmmer-builder /usr/local/lib/libhmmer.so /usr/local/lib/
 
 RUN ldconfig
 
