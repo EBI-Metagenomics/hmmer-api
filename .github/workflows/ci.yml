@@ -50,6 +50,7 @@ jobs:
           password: ${{ secrets.EBI_GITLAB_PASSWORD }}
 
       - name: Build Docker image for validation
+        id: build
         uses: docker/build-push-action@v7
         with:
           load: true
