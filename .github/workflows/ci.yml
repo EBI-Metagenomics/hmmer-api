@@ -60,7 +60,7 @@ jobs:
           provenance: false
 
       - name: Run Django check inside image
-        run: docker run --rm --entrypoint python "${{ steps.meta.outputs.version }}" /app/manage.py check
+        run: docker run --rm --entrypoint python "${{ steps.build.outputs.imageid }}" /app/manage.py check
 
       - name: Push Docker image
         run: docker push --all-tags "${{ vars.IMAGE_REPO }}"
