@@ -49,15 +49,21 @@ jobs:
           username: ${{ secrets.EBI_GITLAB_USERNAME }}
           password: ${{ secrets.EBI_GITLAB_PASSWORD }}
 
-      - name: Build and push Docker image
+      - name: Build Docker image for validation
         uses: docker/build-push-action@v7
         with:
-          push: true
+          load: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           provenance: false
+
+      - name: Run Django check inside image
+        run: docker run --rm --entrypoint python "${{ steps.meta.outputs.version }}" /app/manage.py check
+
+      - name: Push Docker image
+        run: docker push --all-tags "${{ vars.IMAGE_REPO }}"
 
   update-manifest:
     name: Update GitOps manifest
