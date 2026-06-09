@@ -47,3 +47,10 @@ def test_build_databases_uses_discrete_database_fields_without_url():
             "PORT": 15432,
         }
     }
+
+
+def test_default_cors_settings_do_not_allow_all_origins_with_credentials():
+    from hmmerapi.settings import CORS_ALLOW_ALL_ORIGINS, CORS_ALLOW_CREDENTIALS
+
+    assert CORS_ALLOW_ALL_ORIGINS is False
+    assert CORS_ALLOW_CREDENTIALS is False
