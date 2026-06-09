@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "API for the Hmmer Web Service."
 authors = [{ name = "Aleksandar Rajkovic", email = "aleksandar@ebi.ac.uk" }]
 readme = "README.md"
-requires-python = ">=3.13"
+requires-python = ">=3.14"
 dependencies = [
     "django-ninja>=1.6.2,<2.0",
     "django>=5.2,<6.0",
