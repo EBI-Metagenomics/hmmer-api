@@ -47,6 +47,10 @@ class DatabaseSettings(BaseSettings):
     taxonomy_link_template: Optional[str] = "https://www.uniprot.org/taxonomy/{}"
     structure_link_template: Optional[str] = "https://alphafold.ebi.ac.uk/entry/{}"
     architecture_database: Optional[str] = ""
+    disable_architecture: Optional[bool] = False
+    disable_taxonomy: Optional[bool] = False
+
+    model_config = SettingsConfigDict(extra="allow")
 
 
 class HmmerSettings(BaseSettings):

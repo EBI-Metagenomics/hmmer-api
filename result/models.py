@@ -25,9 +25,23 @@ from construct import (
     Tell,
 )
 
-from construct_typed import DataclassMixin, DataclassStruct, csfield, FlagsEnumBase, EnumBase
+from construct_typed import (
+    DataclassMixin,
+    DataclassStruct,
+    csfield,
+    FlagsEnumBase,
+    EnumBase,
+)
 from django.conf import settings
-from pydantic import BaseModel, Field, model_serializer, AliasPath, field_validator, ValidationInfo, model_validator
+from pydantic import (
+    BaseModel,
+    Field,
+    model_serializer,
+    AliasPath,
+    field_validator,
+    ValidationInfo,
+    model_validator,
+)
 from pydantic.dataclasses import dataclass
 from dataclasses import asdict
 from typing import List, Optional, TypeVar, Type, Any, Dict, Tuple
@@ -195,7 +209,9 @@ class Metadata(BaseModel):
 
         external_link_template = info.context["db_conf"].structure_link_template
         pattern = r"AF-(P\d+)-F\d+"
-        uniprot_ids = [re.search(pattern, id).group(1) for id in data if re.search(pattern, id)]
+        uniprot_ids = [
+            re.search(pattern, id).group(1) for id in data if re.search(pattern, id)
+        ]
 
         return [
             Structure(id=id, external_link=external_link_template.format(uniprot_id))
@@ -209,6 +225,50 @@ class Metadata(BaseModel):
         entries = filter(lambda x: x["d"] == db_index, data["d"])
         data["m"] = next(entries)["m"]
         return data
+
+
+class MGnify30Metadata(BaseModel):
+    accession: str = Field(alias="a", description="MGYP accession")
+    studies: Optional[list[str]] = Field([], alias="s")
+    assemblies: Optional[list[str]] = Field([], alias="as")
+    pfam_accessions: Optional[list[str]] = Field([], alias="p")
+
+    # Computed based on the fields above
+    external_link: str = Field(default="")
+    study_links: Optional[list[str]] = Field(default_factory=list)
+    assembly_links: Optional[list[str]] = Field(default_factory=list)
+    pfam_links: Optional[list[str]] = Field(default_factory=list)
+
+    @field_validator("accession", mode="before", check_fields=False)
+    @classmethod
+    def normalize_accession(cls, v: Any, info: ValidationInfo):
+        return f"MGYP{str(v).zfill(12)}"
+
+    @field_validator("pfam_accessions", mode="before", check_fields=False)
+    @classmethod
+    def normalize_pfam_accessions(cls, v: Any, info: ValidationInfo):
+        return [f"PF{str(id).zfill(5)}" for id in (v or [])]
+
+    @model_validator(mode="after")
+    def set_links(self, info: ValidationInfo):
+        if info.context is None:
+            logger.warning("No context available when validating MGnify30 metadata.")
+            return self
+
+        conf = info.context["db_conf"]
+
+        self.external_link = conf.external_link_template.format(self.accession)
+        self.study_links = [
+            conf.study_link_template.format(s) for s in self.studies or []
+        ]
+        self.assembly_links = [
+            conf.assembly_link_template.format(a) for a in self.assemblies or []
+        ]
+        self.pfam_links = [
+            conf.pfam_link_template.format(p) for p in self.pfam_accessions or []
+        ]
+
+        return self
 
 
 class HmmpgmdModel(DataclassMixin):
@@ -258,7 +318,9 @@ class HmmdSearchStats(HmmpgmdModel):
     """UUID of the search/scan job"""
     algo: str = csfield(Computed(lambda ctx: ctx._params.get("algo", "unknown")))
     """Algorith by which the search was performed"""
-    database: str = csfield(Computed(lambda ctx: ctx._params.get("database", "unknown")))
+    database: str = csfield(
+        Computed(lambda ctx: ctx._params.get("database", "unknown"))
+    )
     """Target database"""
     elapsed: float = csfield(Float64b)
     """Elapsed time, seconds"""
@@ -337,21 +399,33 @@ class P7AlignmentDisplay(HmmpgmdModel):
     """Length of sequence"""
     string_presence_flags: Any = csfield(FlagsEnum(Int8ub, P7AliStringPresenceFlags))
     """String presence flags"""
-    rfline: Optional[str] = csfield(If(this.string_presence_flags.RFLINE_PRESENT, CString("utf8")))
+    rfline: Optional[str] = csfield(
+        If(this.string_presence_flags.RFLINE_PRESENT, CString("utf8"))
+    )
     """Reference coord info"""
-    mmline: Optional[str] = csfield(If(this.string_presence_flags.MMLINE_PRESENT, CString("utf8")))
+    mmline: Optional[str] = csfield(
+        If(this.string_presence_flags.MMLINE_PRESENT, CString("utf8"))
+    )
     """Modelmask coord info"""
-    csline: Optional[str] = csfield(If(this.string_presence_flags.CSLINE_PRESENT, CString("utf8")))
+    csline: Optional[str] = csfield(
+        If(this.string_presence_flags.CSLINE_PRESENT, CString("utf8"))
+    )
     """Consensus structure info"""
     model: str = csfield(CString("utf8"))
     """Aligned query consensus sequence"""
     mline: str = csfield(CString("utf8"))
     """"identities", conservation +'s, etc."""
-    aseq: Optional[str] = csfield(If(this.string_presence_flags.ASEQ_PRESENT, CString("utf8")))
+    aseq: Optional[str] = csfield(
+        If(this.string_presence_flags.ASEQ_PRESENT, CString("utf8"))
+    )
     """Aligned target sequence"""
-    ntseq: Optional[str] = csfield(If(this.string_presence_flags.NTSEQ_PRESENT, CString("utf8")))
+    ntseq: Optional[str] = csfield(
+        If(this.string_presence_flags.NTSEQ_PRESENT, CString("utf8"))
+    )
     """Nucleotide target sequence if nhmmscan"""
-    ppline: Optional[str] = csfield(If(this.string_presence_flags.PPLINE_PRESENT, CString("utf8")))
+    ppline: Optional[str] = csfield(
+        If(this.string_presence_flags.PPLINE_PRESENT, CString("utf8"))
+    )
     """Posterior prob annotation"""
     hmmname: str = csfield(CString("utf8"))
     """Name of HMM"""
@@ -365,7 +439,9 @@ class P7AlignmentDisplay(HmmpgmdModel):
     """Accession of target sequence"""
     sqdesc: str = csfield(CString("utf8"))
     """Description of target sequence"""
-    identity: Optional[Tuple[float, int]] = csfield(Computed(lambda ctx: P7AlignmentDisplay.calculate_identity(ctx)))
+    identity: Optional[Tuple[float, int]] = csfield(
+        Computed(lambda ctx: P7AlignmentDisplay.calculate_identity(ctx))
+    )
     """The percentage and count of identical residues between the query and the target."""
     similarity: Optional[Tuple[float, int]] = csfield(
         Computed(lambda ctx: P7AlignmentDisplay.calculate_similarity(ctx))
@@ -414,7 +490,10 @@ class P7AlignmentDisplay(HmmpgmdModel):
         min_len = min(len1, len2)
 
         if min_len and number_of_identical_and_similar:
-            return number_of_identical_and_similar / min_len, number_of_identical_and_similar
+            return (
+                number_of_identical_and_similar / min_len,
+                number_of_identical_and_similar,
+            )
         else:
             return 0, 0
 
@@ -447,9 +526,13 @@ class P7Domain(HmmpgmdModel):
     """Overall score in BITS, null corrected, if this were the only domain in seq"""
     lnP: float = csfield(Float64b)
     """log(P-value) of the bitscore"""
-    ievalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._params.get("stats").Z))
+    ievalue: float = csfield(
+        Computed(lambda ctx: math.exp(ctx.lnP) * ctx._params.get("stats").Z)
+    )
     """The independent e-value for the domain"""
-    cevalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._params.get("stats").domZ))
+    cevalue: float = csfield(
+        Computed(lambda ctx: math.exp(ctx.lnP) * ctx._params.get("stats").domZ)
+    )
     """The conditional e-value for the domain"""
     is_reported: bool = csfield(Int32ub)
     """TRUE if domain meets reporting thresholds"""
@@ -471,7 +554,9 @@ class P7Domain(HmmpgmdModel):
     """"""
     segments: Optional[List[Tuple[int, int]]] = csfield(Computed(None))
     """"""
-    predicted_active_sites: Optional[List[Tuple[str, List[int]]]] = csfield(Computed(None))
+    predicted_active_sites: Optional[List[Tuple[str, List[int]]]] = csfield(
+        Computed(None)
+    )
     """Predicted active sites found after post-processing"""
 
     @model_serializer
@@ -492,7 +577,9 @@ class P7Domain(HmmpgmdModel):
 
 @dataclass
 class P7Hit(HmmpgmdModel):
-    index: int = csfield(If(this._parsing, Computed(lambda ctx: ctx._params.start + ctx._index)))
+    index: int = csfield(
+        If(this._parsing, Computed(lambda ctx: ctx._params.start + ctx._index))
+    )
     """Index of the hit (0-based)"""
     size: int = csfield(Int32ub)
     """length (in bytes) of the serialized P7_HIT object"""
@@ -550,20 +637,30 @@ class P7Hit(HmmpgmdModel):
     """String presence flags"""
     name: str = csfield(CString("utf8"))
     """Name of the hit"""
-    acc: Optional[str] = csfield(If(this.string_presence_flags.ACC_PRESENT, CString("utf8")))
+    acc: Optional[str] = csfield(
+        If(this.string_presence_flags.ACC_PRESENT, CString("utf8"))
+    )
     """Accession of the hit"""
-    desc: Optional[str] = csfield(If(this.string_presence_flags.DESC_PRESENT, CString("utf8")))
+    desc: Optional[str] = csfield(
+        If(this.string_presence_flags.DESC_PRESENT, CString("utf8"))
+    )
     """Description of the hit"""
-    evalue: float = csfield(Computed(lambda ctx: math.exp(ctx.lnP) * ctx._params.get("stats").Z))
+    evalue: float = csfield(
+        Computed(lambda ctx: math.exp(ctx.lnP) * ctx._params.get("stats").Z)
+    )
     """E-value of the hit"""
     metadata: Optional[Dict[str, Any]] = csfield(
         If(
-            lambda ctx: ctx._parsing
-            and ctx._params.get("with_metadata", True)
-            and ctx._params.db_conf.metadata_model_class is not None,
+            lambda ctx: (
+                ctx._parsing
+                and ctx._params.get("with_metadata", True)
+                and ctx._params.db_conf.metadata_model_class is not None
+            ),
             Computed(
-                lambda ctx: ctx._params.db_conf.metadata_model_class.model_validate_json(
-                    ctx.desc, context={"db_conf": ctx._params.db_conf}
+                lambda ctx: (
+                    ctx._params.db_conf.metadata_model_class.model_validate_json(
+                        ctx.desc, context={"db_conf": ctx._params.db_conf}
+                    )
                 )
             ),
         )
@@ -605,7 +702,7 @@ class Result(BaseModel):
         architecture: Optional[str] = None,
         algo: Optional[str] = None,
         id: Optional[str] = None,
-        index_file: Optional[os.PathLike] = None
+        index_file: Optional[os.PathLike] = None,
     ) -> Tuple["Result", int]:
         context = {
             "db_conf": db_conf,
@@ -667,7 +764,9 @@ class Result(BaseModel):
         if taxonomy_ids or architecture:
             context["with_metadata"] = True
 
-        hits = unpack_method(file, stats.size, offsets, adjusted_start, adjusted_end, context)
+        hits = unpack_method(
+            file, stats.size, offsets, adjusted_start, adjusted_end, context
+        )
         total_count = len(offsets)
 
         if (taxonomy_ids or architecture) and index_file is None:
@@ -675,7 +774,9 @@ class Result(BaseModel):
                 hits = [hit for hit in hits if hit.metadata.taxonomy_id in taxonomy_ids]
 
             if architecture:
-                hits = [hit for hit in hits if hit.metadata.architecture == architecture]
+                hits = [
+                    hit for hit in hits if hit.metadata.architecture == architecture
+                ]
 
             total_count = len(hits)
             hits = hits[start:end]
@@ -706,7 +807,10 @@ class Result(BaseModel):
                 / Array(
                     stats.nhits,
                     Pointer(
-                        lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
+                        lambda ctx: (
+                            ctx.stats.size
+                            + ctx.stats.hit_offsets[ctx._params.start + ctx._index]
+                        ),
                         DataclassStruct(P7Hit),
                     ),
                 ),
@@ -725,10 +829,18 @@ class Result(BaseModel):
             )
 
             if taxonomy_ids:
-                parsed.hits = [hit for hit in parsed.hits if hit.metadata.taxonomy_id in taxonomy_ids]
+                parsed.hits = [
+                    hit
+                    for hit in parsed.hits
+                    if hit.metadata.taxonomy_id in taxonomy_ids
+                ]
 
             if architecture:
-                parsed.hits = [hit for hit in parsed.hits if hit.metadata.architecture == architecture]
+                parsed.hits = [
+                    hit
+                    for hit in parsed.hits
+                    if hit.metadata.architecture == architecture
+                ]
 
             total_count = len(parsed.hits)
             parsed.hits = parsed.hits[start:end]
@@ -752,7 +864,10 @@ class Result(BaseModel):
             / Array(
                 length,
                 Pointer(
-                    lambda ctx: ctx.stats.size + ctx.stats.hit_offsets[ctx._params.start + ctx._index],
+                    lambda ctx: (
+                        ctx.stats.size
+                        + ctx.stats.hit_offsets[ctx._params.start + ctx._index]
+                    ),
                     DataclassStruct(P7Hit),
                 ),
             ),
@@ -789,7 +904,9 @@ class Result(BaseModel):
             if hit.is_new:
                 logger.debug(hit)
                 break
-        return format.build({"stats": result.stats, "hits": result.hits}, stats=result.stats)
+        return format.build(
+            {"stats": result.stats, "hits": result.hits}, stats=result.stats
+        )
 
     @classmethod
     def to_file(cls, result: "Result", file: os.PathLike):
@@ -800,7 +917,13 @@ class Result(BaseModel):
 
     @classmethod
     def _unpack_hits_parallel(
-        cls, file: os.PathLike, stats_size: int, offsets: List[int], start: int, end: int, context: Dict[str, Any]
+        cls,
+        file: os.PathLike,
+        stats_size: int,
+        offsets: List[int],
+        start: int,
+        end: int,
+        context: Dict[str, Any],
     ):
         max_workers = settings.HMMER.result_threads
         chunk_size = settings.HMMER.result_chunk_size
@@ -814,7 +937,12 @@ class Result(BaseModel):
         actual_workers = min(max_workers, len(chunks))
 
         def parse_hit_chunk(
-            file: os.PathLike, start: int, length: int, stats_size: int, offsets: List[int], context: Dict[str, Any]
+            file: os.PathLike,
+            start: int,
+            length: int,
+            stats_size: int,
+            offsets: List[int],
+            context: Dict[str, Any],
         ):
             format = Array(
                 length,
@@ -832,7 +960,15 @@ class Result(BaseModel):
 
         with ThreadPoolExecutor(max_workers=actual_workers) as executor:
             future_to_chunk = {
-                executor.submit(parse_hit_chunk, file, chunk_start, chunk_length, stats_size, offsets, context): i
+                executor.submit(
+                    parse_hit_chunk,
+                    file,
+                    chunk_start,
+                    chunk_length,
+                    stats_size,
+                    offsets,
+                    context,
+                ): i
                 for i, chunk_start, chunk_length in chunks
             }
 
@@ -856,7 +992,13 @@ class Result(BaseModel):
 
     @classmethod
     def _unpack_hits_sequential(
-        cls, file: os.PathLike, stats_size: int, offsets: List[int], start: int, end: int, context: Dict[str, Any]
+        cls,
+        file: os.PathLike,
+        stats_size: int,
+        offsets: List[int],
+        start: int,
+        end: int,
+        context: Dict[str, Any],
     ):
         length = end - start
 
@@ -875,7 +1017,9 @@ class Result(BaseModel):
 
 def post_process_pfam(result: Result):
     all_domains = [
-        {"domain": domain, "hit": hit} for hit in result.hits for domain in filter(lambda d: d.is_included, hit.domains)
+        {"domain": domain, "hit": hit}
+        for hit in result.hits
+        for domain in filter(lambda d: d.is_included, hit.domains)
     ]
 
     for flat_domain in all_domains:
@@ -895,35 +1039,44 @@ def post_process_pfam(result: Result):
             if flat_domain["domain"].overlaps(other_flat_domain["domain"], "ali"):
                 if (
                     flat_domain["hit"].metadata.nested is not None
-                    and other_flat_domain["hit"].metadata.identifier in flat_domain["hit"].metadata.nested
+                    and other_flat_domain["hit"].metadata.identifier
+                    in flat_domain["hit"].metadata.nested
                 ):
                     continue
 
                 if (
                     flat_domain["hit"].metadata.clan is not None
                     and other_flat_domain["hit"].metadata.clan is not None
-                    and flat_domain["hit"].metadata.clan == other_flat_domain["hit"].metadata.clan
+                    and flat_domain["hit"].metadata.clan
+                    == other_flat_domain["hit"].metadata.clan
                 ):
                     other_flat_domain["domain"].display = False
                     other_flat_domain["domain"].outcompeted = True
 
-    for i, flat_domain in enumerate(sorted(all_domains, key=lambda d: d["domain"].iali)):
+    for i, flat_domain in enumerate(
+        sorted(all_domains, key=lambda d: d["domain"].iali)
+    ):
         if not flat_domain["domain"].display:
             continue
 
-        for other_flat_domain in sorted(all_domains, key=lambda d: d["domain"].iali)[i + 1:]:
+        for other_flat_domain in sorted(all_domains, key=lambda d: d["domain"].iali)[
+            i + 1 :
+        ]:
             if not other_flat_domain["domain"].display:
                 continue
 
             if flat_domain["domain"].overlaps(other_flat_domain["domain"], "ali"):
                 if (
                     flat_domain["hit"].metadata.nested is None
-                    or other_flat_domain["hit"].metadata.identifier not in flat_domain["hit"].metadata.nested
+                    or other_flat_domain["hit"].metadata.identifier
+                    not in flat_domain["hit"].metadata.nested
                 ):
                     continue
 
                 if flat_domain["domain"].segments is None:
-                    flat_domain["domain"].segments = [(flat_domain["domain"].ienv, flat_domain["domain"].jenv)]
+                    flat_domain["domain"].segments = [
+                        (flat_domain["domain"].ienv, flat_domain["domain"].jenv)
+                    ]
 
                 j = 0
 
@@ -997,19 +1150,31 @@ def predict_active_sites(result: Result):
                         residue, hmm_position = m.groups()
                         hmm_position = int(hmm_position)
                         as_positions[hmm_position] = residue
-                        if domain.alignment_display.hmmfrom <= hmm_position <= domain.alignment_display.hmmto:
+                        if (
+                            domain.alignment_display.hmmfrom
+                            <= hmm_position
+                            <= domain.alignment_display.hmmto
+                        ):
                             in_seq = True
-                if not in_seq:  # Active site residue positions are not located in this region
+                if (
+                    not in_seq
+                ):  # Active site residue positions are not located in this region
                     continue
 
                 # Look for the active site pattern in the sequence
                 # Active site residues will be in match positions only
                 for aa in seq:
                     if re.match(r"[A-Z]", aa):  # Uppercase residues are match states
-                        if hmm_counter in as_positions:  # It's an active site residue position
-                            if aa == as_positions[hmm_counter]:  # Does it have the correct aa at that position
+                        if (
+                            hmm_counter in as_positions
+                        ):  # It's an active site residue position
+                            if (
+                                aa == as_positions[hmm_counter]
+                            ):  # Does it have the correct aa at that position
                                 match.append(residue_counter)
-                                matched_patterns.setdefault(" ".join(patterns), {})[hmm_counter] = True
+                                matched_patterns.setdefault(" ".join(patterns), {})[
+                                    hmm_counter
+                                ] = True
                                 del as_positions[hmm_counter]
                                 if not as_positions:
                                     break
@@ -1021,7 +1186,9 @@ def predict_active_sites(result: Result):
                         if hmm_counter in as_positions:
                             break
                         hmm_counter += 1
-                    elif re.match(r"[a-z]", aa):  # Lowercase residues are not match state positions
+                    elif re.match(
+                        r"[a-z]", aa
+                    ):  # Lowercase residues are not match state positions
                         if hmm_counter in as_positions:
                             break
                         residue_counter += 1
@@ -1029,7 +1196,9 @@ def predict_active_sites(result: Result):
                         if hmm_counter in as_positions:
                             break
                     else:
-                        raise ValueError(f"Unrecognised character [{aa}] in {domain.alignment_display.aseq}")
+                        raise ValueError(
+                            f"Unrecognised character [{aa}] in {domain.alignment_display.aseq}"
+                        )
 
                 if as_positions:
                     matched_patterns.pop(" ".join(patterns), None)
@@ -1040,7 +1209,7 @@ def predict_active_sites(result: Result):
                         domain.predicted_active_sites.append((source, match))
 
 
-class HitsIndex():
+class HitsIndex:
     def __init__(self, result: Result):
         self.architecture_index: Dict[str, List[int]] = defaultdict(list)
         self.taxonomy_index: Dict[int, list[int]] = defaultdict(list)
@@ -1049,7 +1218,9 @@ class HitsIndex():
 
         for i, hit in enumerate(result.hits):
             architecture_hash = md5(hit.metadata.architecture.encode()).hexdigest()
-            self.architecture_index[architecture_hash].append(result.stats.hit_offsets[i])
+            self.architecture_index[architecture_hash].append(
+                result.stats.hit_offsets[i]
+            )
 
             if hit.metadata.lineage is None:
                 continue
@@ -1086,4 +1257,7 @@ class HitsIndex():
         if not isinstance(other, HitsIndex):
             return False
 
-        return self.architecture_index == other.architecture_index and self.taxonomy_index == other.taxonomy_index
+        return (
+            self.architecture_index == other.architecture_index
+            and self.taxonomy_index == other.taxonomy_index
+        )

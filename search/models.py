@@ -505,11 +505,15 @@ class HmmerJob(AL_Node):
                     )
                 ]
 
-                subsequent_tasks = [
-                    signature(
-                        "search.tasks.index_hits", args=(self.id,), immutable=True
-                    )
-                ]
+                subsequent_tasks = (
+                    [
+                        signature(
+                            "search.tasks.index_hits", args=(self.id,), immutable=True
+                        )
+                    ]
+                    if self.with_taxonomy or self.with_architecture
+                    else []
+                )
 
                 if self.with_taxonomy:
                     subsequent_tasks += [
@@ -518,6 +522,9 @@ class HmmerJob(AL_Node):
                             args=(self.id,),
                             immutable=True,
                         ),
+                    ]
+
+                    subsequent_tasks += [
                         signature(
                             "taxonomy.tasks.build_taxonomy_distribution_graph",
                             args=(self.id,),
@@ -573,7 +580,9 @@ class HmmerJob(AL_Node):
 
             subsequent_tasks = []
 
-            if self.algo != HmmerJob.AlgoChoices.HMMSCAN:
+            if self.algo != HmmerJob.AlgoChoices.HMMSCAN and (
+                self.with_taxonomy or self.with_architecture
+            ):
                 subsequent_tasks.append(
                     signature(
                         "search.tasks.index_hits", args=(self.id,), immutable=True
@@ -586,7 +595,11 @@ class HmmerJob(AL_Node):
                         "taxonomy.tasks.build_taxonomy_tree",
                         args=(self.id,),
                         immutable=True,
-                    ),
+                    )
+                ]
+
+            if self.algo != self.AlgoChoices.HMMSCAN:
+                subsequent_tasks += [
                     signature(
                         "taxonomy.tasks.build_taxonomy_distribution_graph",
                         args=(self.id,),
