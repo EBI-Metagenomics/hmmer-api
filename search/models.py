@@ -524,13 +524,13 @@ class HmmerJob(AL_Node):
                         ),
                     ]
 
-                    subsequent_tasks += [
-                        signature(
-                            "taxonomy.tasks.build_taxonomy_distribution_graph",
-                            args=(self.id,),
-                            immutable=True,
-                        ),
-                    ]
+                subsequent_tasks += [
+                    signature(
+                        "taxonomy.tasks.build_taxonomy_distribution_graph",
+                        args=(self.id,),
+                        immutable=True,
+                    ),
+                ]
 
                 if self.with_architecture:
                     subsequent_tasks.append(
