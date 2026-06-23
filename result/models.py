@@ -228,7 +228,7 @@ class Metadata(BaseModel):
 
 
 class MGnify30Metadata(BaseModel):
-    accession: str = Field(alias="a")
+    accession: str = Field(alias="a", description="MGYP accession")
     studies: Optional[list[str]] = Field([], alias="s")
     assemblies: Optional[list[str]] = Field([], alias="as")
     pfam_accessions: Optional[list[str]] = Field([], alias="p")
