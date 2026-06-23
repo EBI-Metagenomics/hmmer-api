@@ -272,7 +272,7 @@ class TaxonomyDistributionGraph(BaseModel):
             if hit.is_included
         ]
         superkingdoms = [
-            taxonomy_id_lookup[hit.metadata.lineage[0]]
+            taxonomy_id_lookup[(getattr(hit.metadata, 'lineage', None) or [None])[0]]
             for hit in result.hits
             if hit.is_included
         ]
