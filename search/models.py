@@ -752,7 +752,7 @@ class Database(models.Model):
     status = models.CharField(
         max_length=16, choices=StatusChoices.choices, default=StatusChoices.ENABLED
     )
-    name = models.CharField(max_length=32)
+    name = models.CharField(max_length=64)
     version = models.CharField(max_length=32)
     release_date = models.DateField(default=datetime.date.today)
     order = models.IntegerField(default=-1)
