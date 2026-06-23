@@ -60,8 +60,6 @@ class JobDetailsResponseSchema(ModelSchema):
             "taxonomy_distribution_graph_task",
             "architecture_task",
             "annotation_task",
-            "with_taxonomy",
-            "with_architecture",
             "parent",
             "include",
             "exclude",
@@ -162,13 +160,7 @@ class SearchRequestSchema(ModelSchema):
                 info.context["validation_results"]["input_type"] = input_type
                 return validated_input
 
-    @model_validator(mode="after")
-    def set_input_type_from_context(self, info: ValidationInfo):
-        if "validation_results" in info.context:
-            if "input_type" in info.context["validation_results"]:
-                self.input_type = info.context["validation_results"]["input_type"]
-
-        return self
+    
 
     @field_validator("iterations", mode="before", check_fields=False)
     @classmethod
@@ -288,9 +280,36 @@ class SearchRequestSchema(ModelSchema):
             raise PydanticCustomError("invalid_input", "UUID is not valid")
 
     @model_validator(mode="after")
+    def set_input_type_from_context(self, info: ValidationInfo):
+        if info.context is None:
+            return self
+
+        if "validation_results" in info.context:
+            if "input_type" in info.context["validation_results"]:
+                self.input_type = info.context["validation_results"]["input_type"]
+
+        return self
+
+    @model_validator(mode="after")
     def validate_database_id_requirement(self):
         if self.input_type != HmmerJob.InputChoices.UUID and self.database_id is None:
             raise PydanticCustomError("missing_database_id", "database is required when input is not a UUID4")
+
+        return self
+
+    @model_validator(mode="after")
+    def apply_database_capability_limits(self):
+        if self.database_id is None:
+            return self
+
+        db_config = settings.HMMER.databases.get(self.database_id)
+        if db_config is None:
+            return self
+
+        if db_config.disable_taxonomy:
+            self.with_taxonomy = False
+        if db_config.disable_architecture:
+            self.with_architecture = False
 
         return self
 
