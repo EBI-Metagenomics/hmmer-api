@@ -159,7 +159,7 @@ class FastaBuildStrategy(FileBuildStrategy):
                 sequence.write(fh)
 
     def fetch_sequence(self, fh: TextIO, ssi_reader: SSIReader, key: Union[str, int]):
-        entry = ssi_reader.find_name(str(key).encode())
+        entry = ssi_reader.find_name(str(key))
         fh.seek(entry.data_offset)
         return fh.read(entry.record_length)
 
