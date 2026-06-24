@@ -158,12 +158,12 @@ class FastaBuildStrategy(FileBuildStrategy):
             for sequence in self.fetch_sequences():
                 sequence.write(fh)
 
-    def fetch_sequence(self, fh: TextIO, ssi_reader: SSIReader, key: int):
-        entry = ssi_reader.find_name(key)
+    def fetch_sequence(self, fh: TextIO, ssi_reader: SSIReader, key: Union[str, int]):
+        entry = ssi_reader.find_name(str(key).encode())
         fh.seek(entry.data_offset)
         return fh.read(entry.record_length)
 
-    def fetch_sequence_chunk(self, file: os.PathLike, keys: List[int]):
+    def fetch_sequence_chunk(self, file: os.PathLike, keys: Union[List[str], List[int]]):
         with SSIReader(f"{file}.ssi") as ssi_reader, open(file, "rt") as fh:
             return {key: self.fetch_sequence(fh, ssi_reader, key) for key in keys}
 
