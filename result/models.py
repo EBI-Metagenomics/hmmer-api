@@ -239,6 +239,10 @@ class MGnify30Metadata(BaseModel):
     assembly_links: Optional[list[str]] = Field(default_factory=list)
     pfam_links: Optional[list[str]] = Field(default_factory=list)
 
+    @property
+    def identifier(self):
+        return self.accession
+
     @field_validator("accession", mode="before", check_fields=False)
     @classmethod
     def normalize_accession(cls, v: Any, info: ValidationInfo):
