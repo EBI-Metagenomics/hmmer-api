@@ -99,11 +99,17 @@ def set_msa_info(msa: ESL_MSA_p, db_conf: DatabaseSettings):
         if match is None:
             return
 
-        metadata = metadata_class.model_validate_json(match.group(1), context={"db_conf": db_conf})
+        metadata = metadata_class.model_validate_json(
+            match.group(1), context={"db_conf": db_conf}
+        )
         new_name = f"{metadata.accession}/{range_part}"
-        new_desc = f"[subseq from] {metadata.description}"
-        hmmer.esl_msa_SetSeqName(msa, i, create_string_buffer(new_name.encode()), len(new_name))
-        hmmer.esl_msa_SetSeqDescription(msa, i, create_string_buffer(new_desc.encode()), len(new_desc))
+        new_desc = f"[subseq from] {getattr(metadata, 'description', '')}"
+        hmmer.esl_msa_SetSeqName(
+            msa, i, create_string_buffer(new_name.encode()), len(new_name)
+        )
+        hmmer.esl_msa_SetSeqDescription(
+            msa, i, create_string_buffer(new_desc.encode()), len(new_desc)
+        )
 
 
 def construct_align(
@@ -118,7 +124,9 @@ def construct_align(
     hmm_buffer = c_char_p(hmm_input.encode())
     hmm_file = c_void_p()
 
-    return_code = hmmer.p7_hmmfile_OpenBuffer(hmm_buffer, len(hmm_input), byref(hmm_file))
+    return_code = hmmer.p7_hmmfile_OpenBuffer(
+        hmm_buffer, len(hmm_input), byref(hmm_file)
+    )
 
     if return_code:
         raise Exception(f"Failed to read hmm: {return_code}")
@@ -141,7 +149,9 @@ def construct_align(
     excl_all = c_int(1 if exclude_all else 0)
     ret_msa = POINTER(ESL_MSA)()
 
-    return_code = hmmer.hmmpgmd2msa(data, hmm, None, incl, incl_size, excl, excl_size, excl_all, byref(ret_msa))
+    return_code = hmmer.hmmpgmd2msa(
+        data, hmm, None, incl, incl_size, excl, excl_size, excl_all, byref(ret_msa)
+    )
 
     if return_code:
         raise Exception(f"Failed to build msa: {return_code}")
@@ -206,14 +216,25 @@ def hmm_from_hmmpgmd(
 
 
 def msa_from_hmmpgmd(
-    hits: os.PathLike, hmm_input: str, format: str, db_conf: DatabaseSettings, include: List[int] = []
+    hits: os.PathLike,
+    hmm_input: str,
+    format: str,
+    db_conf: DatabaseSettings,
+    include: List[int] = [],
 ):
     try:
         format_enum = MSAFormat[format.upper()]
     except KeyError:
         raise Exception("Unsupported MSA format")
 
-    ret_msa = construct_align(hits, hmm_input, include=include, exclude=[], exclude_all=bool(include), db_conf=db_conf)
+    ret_msa = construct_align(
+        hits,
+        hmm_input,
+        include=include,
+        exclude=[],
+        exclude_all=bool(include),
+        db_conf=db_conf,
+    )
 
     tempfile = NamedTemporaryFile(mode="rt", delete=False)
 
