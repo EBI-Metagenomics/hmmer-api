@@ -242,8 +242,8 @@ def notify_on_job_completion(self, job_id: str):
                 )
         except Exception:
             pass
-        finally:
-            return
+
+        return
 
     if len(job.email_address) == 0:
         return

@@ -505,11 +505,15 @@ class HmmerJob(AL_Node):
                     )
                 ]
 
-                subsequent_tasks = [
-                    signature(
-                        "search.tasks.index_hits", args=(self.id,), immutable=True
-                    )
-                ]
+                subsequent_tasks = (
+                    [
+                        signature(
+                            "search.tasks.index_hits", args=(self.id,), immutable=True
+                        )
+                    ]
+                    if self.with_taxonomy or self.with_architecture
+                    else []
+                )
 
                 if self.with_taxonomy:
                     subsequent_tasks += [
@@ -518,12 +522,15 @@ class HmmerJob(AL_Node):
                             args=(self.id,),
                             immutable=True,
                         ),
-                        signature(
-                            "taxonomy.tasks.build_taxonomy_distribution_graph",
-                            args=(self.id,),
-                            immutable=True,
-                        ),
                     ]
+
+                subsequent_tasks += [
+                    signature(
+                        "taxonomy.tasks.build_taxonomy_distribution_graph",
+                        args=(self.id,),
+                        immutable=True,
+                    ),
+                ]
 
                 if self.with_architecture:
                     subsequent_tasks.append(
@@ -573,7 +580,9 @@ class HmmerJob(AL_Node):
 
             subsequent_tasks = []
 
-            if self.algo != HmmerJob.AlgoChoices.HMMSCAN:
+            if self.algo != HmmerJob.AlgoChoices.HMMSCAN and (
+                self.with_taxonomy or self.with_architecture
+            ):
                 subsequent_tasks.append(
                     signature(
                         "search.tasks.index_hits", args=(self.id,), immutable=True
@@ -586,7 +595,11 @@ class HmmerJob(AL_Node):
                         "taxonomy.tasks.build_taxonomy_tree",
                         args=(self.id,),
                         immutable=True,
-                    ),
+                    )
+                ]
+
+            if self.algo != self.AlgoChoices.HMMSCAN:
+                subsequent_tasks += [
                     signature(
                         "taxonomy.tasks.build_taxonomy_distribution_graph",
                         args=(self.id,),
@@ -739,7 +752,7 @@ class Database(models.Model):
     status = models.CharField(
         max_length=16, choices=StatusChoices.choices, default=StatusChoices.ENABLED
     )
-    name = models.CharField(max_length=32)
+    name = models.CharField(max_length=64)
     version = models.CharField(max_length=32)
     release_date = models.DateField(default=datetime.date.today)
     order = models.IntegerField(default=-1)
