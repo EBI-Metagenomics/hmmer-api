@@ -10,106 +10,29 @@ on:
 permissions:
   contents: read
 
-env:
-  MANIFEST_BRANCH: main
-
 jobs:
   test:
     name: Test
     uses: ./.github/workflows/test.yml
 
-  build:
-    name: Build and push
+  build-and-deploy:
+    name: Build and deploy
     runs-on: ubuntu-latest
     needs: [test]
-    outputs:
-      sha_tag: ${{ steps.meta.outputs.version }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
-      - name: Docker meta
-        id: meta
-        uses: docker/metadata-action@v6
+      - name: Build and update manifest
+        uses: EBI-Metagenomics/clippy-pirate@v1
         with:
-          images: ${{ vars.IMAGE_REPO }}
-          tags: |
-            type=sha,prefix=main-,priority=300,enable=${{ github.ref == 'refs/heads/main' }}
-            type=sha,prefix=dev-,priority=300,enable=${{ github.ref == 'refs/heads/development' }}
-            type=raw,value=production-latest,enable=${{ github.ref == 'refs/heads/main' }}
-            type=raw,value=development-latest,enable=${{ github.ref == 'refs/heads/development' }}
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v4
-
-      - name: Login to EBI GitLab
-        uses: docker/login-action@v4
-        with:
-          registry: dockerhub.ebi.ac.uk
-          username: ${{ secrets.EBI_GITLAB_USERNAME }}
-          password: ${{ secrets.EBI_GITLAB_PASSWORD }}
-
-      - name: Build Docker image for validation
-        id: build
-        uses: docker/build-push-action@v7
-        with:
-          load: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          provenance: false
-
-      - name: Run Django check inside image
-        run: docker run --rm --entrypoint python "${{ steps.build.outputs.imageid }}" /app/manage.py check
-
-      - name: Push Docker image
-        run: docker push --all-tags "${{ vars.IMAGE_REPO }}"
-
-  update-manifest:
-    name: Update GitOps manifest
-    runs-on: ubuntu-latest
-    needs: [build]
-    if: github.event_name == 'push'
-    permissions:
-      contents: read
-    steps:
-      - name: Set overlay path
-        id: overlay
-        run: |
-          if [[ "$GITHUB_REF" == 'refs/heads/main' ]]; then
-            echo "path=deployment/k8s/overlays/prod" >> "$GITHUB_OUTPUT"
-          else
-            echo "path=deployment/k8s/overlays/dev" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Checkout manifests repo
-        uses: actions/checkout@v6
-        with:
-          repository: ${{ vars.MANIFEST_REPO }}
-          ref: ${{ env.MANIFEST_BRANCH }}
-          token: ${{ secrets.GITOPS_REPO_TOKEN }}
-
-      - name: Install kustomize
-        uses: imranismail/setup-kustomize@v3
-
-      - name: Update image tag
-        working-directory: ${{ steps.overlay.outputs.path }}
-        run: |
-          kustomize edit set image \
-            "${{ vars.IMAGE_REPO }}=${{ vars.IMAGE_REPO }}:${{ needs.build.outputs.sha_tag }}"
-
-      - name: Commit and push
-        run: |
-          git config user.name "github-actions"
-          git config user.email "github-actions@github.com"
-
-          git add "${{ steps.overlay.outputs.path }}/kustomization.yml"
-
-          if git diff --cached --quiet; then
-            echo "No manifest changes to commit."
-            exit 0
-          fi
-
-          git commit -m "chore: deploy hmmer-api ${{ needs.build.outputs.sha_tag }}"
-          git push origin "${{ env.MANIFEST_BRANCH }}"
+          image_repo: ${{ vars.IMAGE_REPO }}
+          registry: ${{ vars.GITLAB_CONTAINERS_REGISTRY }}
+          registry_username: ${{ secrets.GITLAB_CONTAINERS_USERNAME }}
+          registry_password: ${{ secrets.GITLAB_CONTAINERS_PASSWORD }}
+          manifest_repo_url: ${{ vars.GITLAB_INFRA_REPO_URL }}
+          manifest_branch: ${{ vars.GITLAB_INFRA_BRANCH }}
+          gitops_repo_token: ${{ secrets.GITLAB_INFRA_TOKEN }}
+          overlay_path_main: ${{ vars.OVERLAY_PATH_MAIN }}
+          overlay_path_dev: ${{ vars.OVERLAY_PATH_DEV }}
+          healthcheck_command: 'python /app/manage.py check'
