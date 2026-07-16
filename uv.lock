@@ -311,15 +311,15 @@ wheels = [
 
 [[package]]
 name = "django-prometheus"
-version = "2.4.1"
+version = "2.5.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
     { name = "prometheus-client" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/98/f4/cb39ddd2a41e07a274c4e162c076e906ae232d63b66bbabdea0300878877/django_prometheus-2.4.1.tar.gz", hash = "sha256:073628243d2a6de6a8a8c20e5b512872dfb85d66e1b60b28bcf1eca0155dad95", size = 24464, upload-time = "2025-06-25T15:45:37.149Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/7b/c7/dc39c4c19f7b35e827a486d08376de1fad31c50decb26c56e32668314f13/django_prometheus-2.5.0.tar.gz", hash = "sha256:4837b3c3734d8350880839ab8235aafd250b668c348e159d4aecc3cbefeee53e", size = 26465, upload-time = "2026-05-26T19:04:00.77Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/01/50/9c5e022fa92574e5d20606687f15a2aa255e10512a17d11a8216fa117f72/django_prometheus-2.4.1-py2.py3-none-any.whl", hash = "sha256:7fe5af7f7c9ad9cd8a429fe0f3f1bf651f0e244f77162147869eab7ec09cc5e7", size = 29541, upload-time = "2025-06-25T15:45:35.433Z" },
+    { url = "https://files.pythonhosted.org/packages/5d/5d/6ec3083ba69545696c962ae505a0e52e280e7592d4c278c2f3803cabb688/django_prometheus-2.5.0-py2.py3-none-any.whl", hash = "sha256:f15efb526cd53f9cf12da72dc55506322f5566b017a819ff27be1da302303134", size = 31801, upload-time = "2026-05-26T19:03:59.505Z" },
 ]
 
 [[package]]
@@ -348,26 +348,26 @@ wheels = [
 
 [[package]]
 name = "django-treebeard"
-version = "5.1.0"
+version = "5.3.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f7/16/aa732ea1033586e4f946d8e47be9116ffb22b050485b179a7cafb82dfc34/django_treebeard-5.1.0.tar.gz", hash = "sha256:8ac2ba41307469a679c98188124933bc3baade36b02480343d1a301a1fca0700", size = 302339, upload-time = "2026-05-12T02:06:37.002Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/cc/b4/d63da0e36e42fa0cf355d5692ee70066922ff9e8f54b30f69605d43cc9c5/django_treebeard-5.3.0.tar.gz", hash = "sha256:8606cefd3a65689e99d2a493e5af8a8ece450b96915c949b5c72f6f302cfbe19", size = 312630, upload-time = "2026-06-24T05:34:50.545Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/42/d3/311b9c43950238744f946540c48ea7068bf9e55bea976908a7be13b73082/django_treebeard-5.1.0-py3-none-any.whl", hash = "sha256:d0f68fcf1b49158e38d2322aa62a37bc0b89452d66a16f88e58dbe076d043c28", size = 78591, upload-time = "2026-05-12T02:06:35.62Z" },
+    { url = "https://files.pythonhosted.org/packages/50/5a/7b9fa8374e3da778109d1135c6d0131cc3ad27ba3d5436ef3a3ae3f55e7d/django_treebeard-5.3.0-py3-none-any.whl", hash = "sha256:ae9e570fa74b4c882bc08def1f0c97d27f163b6285a19f3383027d074882e9f4", size = 82023, upload-time = "2026-06-24T05:34:49.133Z" },
 ]
 
 [[package]]
 name = "django-unfold"
-version = "0.94.0"
+version = "0.100.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/c5/26/d1e4f9ca3b23e020323c2b90ac57ac515acdfb6108fff47ad9354a47edd8/django_unfold-0.94.0.tar.gz", hash = "sha256:4c1f73b5371e8b45be548e520a9dc1b7b18e9de5bba65267784407776941f627", size = 1124721, upload-time = "2026-05-18T08:00:13.14Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/aa/9e/0fd00f47a74af01e467f64b40dcf2e6343761c59ed532922bf7bfa2484ef/django_unfold-0.100.0.tar.gz", hash = "sha256:b153cac2fd5c36338767ec7bed72c1560b5f5d88a3429dc5484560c705c335bb", size = 1126533, upload-time = "2026-07-06T10:33:08.97Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/d9/fe/a064bb7195d0d50890c15562d7257646d1bce9240545af7c0e2a48fab408/django_unfold-0.94.0-py3-none-any.whl", hash = "sha256:89de4e1fe3be3477358afa92aa847940ca250e05e88724dd78f7e9499dccda0e", size = 1250343, upload-time = "2026-05-18T08:00:15.342Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/94/895052dd2cf0d5d1e05f368c81baa5501967b2645ccd8adfa63140ad769b/django_unfold-0.100.0-py3-none-any.whl", hash = "sha256:4bfc6d148a9dfc9cbed7501db81cc8040510fa0b2bfe664067ceebcedd861ee6", size = 1254100, upload-time = "2026-07-06T10:33:07.515Z" },
 ]
 
 [[package]]
@@ -550,10 +550,10 @@ requires-dist = [
     { name = "django-celery-results", specifier = ">=2.6.0,<3.0" },
     { name = "django-cors-headers", specifier = ">=4.9.0,<5.0" },
     { name = "django-ninja", specifier = ">=1.6.2,<2.0" },
-    { name = "django-prometheus", specifier = ">=2.4.1,<3.0" },
+    { name = "django-prometheus", specifier = ">=2.5.0,<3.0" },
     { name = "django-templated-email", specifier = ">=3.1.1,<4.0" },
-    { name = "django-treebeard", specifier = ">=5.1.0,<6.0" },
-    { name = "django-unfold", specifier = ">=0.94.0,<1.0" },
+    { name = "django-treebeard", specifier = ">=5.3.0,<6.0" },
+    { name = "django-unfold", specifier = ">=0.100.0,<1.0" },
     { name = "email-validator", specifier = ">=2.2.0,<3.0" },
     { name = "flower", specifier = ">=2.0.1,<3.0" },
     { name = "gunicorn", specifier = ">=26.0.0,<27.0" },
