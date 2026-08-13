@@ -348,14 +348,14 @@ wheels = [
 
 [[package]]
 name = "django-treebeard"
-version = "5.1.0"
+version = "7.0.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "django" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f7/16/aa732ea1033586e4f946d8e47be9116ffb22b050485b179a7cafb82dfc34/django_treebeard-5.1.0.tar.gz", hash = "sha256:8ac2ba41307469a679c98188124933bc3baade36b02480343d1a301a1fca0700", size = 302339, upload-time = "2026-05-12T02:06:37.002Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/32/a9/bd9dd251cd327f8a06014a3bc9c3f057eb0bff4ab481ae04eab35fb1dafa/django_treebeard-7.0.0.tar.gz", hash = "sha256:54dc526a25c4e5083cf7ae7b37bf0a02c5c2878b693027663db7604de2869d7a", size = 229757, upload-time = "2026-08-04T04:31:20.197Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/42/d3/311b9c43950238744f946540c48ea7068bf9e55bea976908a7be13b73082/django_treebeard-5.1.0-py3-none-any.whl", hash = "sha256:d0f68fcf1b49158e38d2322aa62a37bc0b89452d66a16f88e58dbe076d043c28", size = 78591, upload-time = "2026-05-12T02:06:35.62Z" },
+    { url = "https://files.pythonhosted.org/packages/cd/62/bb57239e4ce9061ab2fd44d91bb4462db3a91ab414b47cadba0952499fa8/django_treebeard-7.0.0-py3-none-any.whl", hash = "sha256:b730c1ae67da26a68a8a87a9378714ea1c3dd9dbcea200599fe904bb747ec472", size = 79759, upload-time = "2026-08-04T04:31:18.557Z" },
 ]
 
 [[package]]
@@ -552,7 +552,7 @@ requires-dist = [
     { name = "django-ninja", specifier = ">=1.6.2,<2.0" },
     { name = "django-prometheus", specifier = ">=2.5.0,<3.0" },
     { name = "django-templated-email", specifier = ">=3.1.1,<4.0" },
-    { name = "django-treebeard", specifier = ">=5.1.0,<6.0" },
+    { name = "django-treebeard", specifier = ">=7.0.0,<8.0" },
     { name = "django-unfold", specifier = ">=0.101.0,<1.0" },
     { name = "email-validator", specifier = ">=2.2.0,<3.0" },
     { name = "flower", specifier = ">=2.0.1,<3.0" },
@@ -565,7 +565,7 @@ requires-dist = [
     { name = "psycopg2-binary", specifier = ">=2.9.12,<3.0" },
     { name = "pydantic-settings", specifier = ">=2.6.1,<3.0" },
     { name = "pyhmmer", specifier = ">=0.10.15,<1.0" },
-    { name = "redis", specifier = ">=5.2.0" },
+    { name = "redis", specifier = ">=8.1.0" },
 ]
 
 [package.metadata.requires-dev]
@@ -1026,11 +1026,11 @@ wheels = [
 
 [[package]]
 name = "redis"
-version = "7.4.0"
+version = "8.1.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/7b/7f/3759b1d0d72b7c92f0d70ffd9dc962b7b7b5ee74e135f9d7d8ab06b8a318/redis-7.4.0.tar.gz", hash = "sha256:64a6ea7bf567ad43c964d2c30d82853f8df927c5c9017766c55a1d1ed95d18ad", size = 4943913, upload-time = "2026-03-24T09:14:37.53Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/a8/99/604f0b666d4c616d891cf77ebb9db6bb21601344c051aebf1b72b9ff915f/redis-8.1.0.tar.gz", hash = "sha256:6e1a19beef9225c83efd689c7e6b7da2d5215b1f42cd13b7fc3714d0a09c7b25", size = 5254356, upload-time = "2026-07-30T08:51:00.269Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/74/3a/95deec7db1eb53979973ebd156f3369a72732208d1391cd2e5d127062a32/redis-7.4.0-py3-none-any.whl", hash = "sha256:a9c74a5c893a5ef8455a5adb793a31bb70feb821c86eccb62eebef5a19c429ec", size = 409772, upload-time = "2026-03-24T09:14:35.968Z" },
+    { url = "https://files.pythonhosted.org/packages/66/9d/c5731f6e3608663d4d3656fd8d3aecee8b509c3082818f5a13eae925baea/redis-8.1.0-py3-none-any.whl", hash = "sha256:a4fe1aac3d3b3cc791d4b3d5931c5a956045dc951ee74d1c913ee3ac4d2ee9fb", size = 560618, upload-time = "2026-07-30T08:50:58.497Z" },
 ]
 
 [[package]]
