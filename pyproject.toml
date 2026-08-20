@@ -7,7 +7,7 @@ readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
     "django-ninja>=1.6.2,<2.0",
-    "django>=5.2,<6.0",
+    "django>=5.2,<7.0",
     "celery>=5.4.0,<6.0",
     "dj-database-url>=3.1.2,<4.0",
     "django-cache-url>=3.4.6,<4.0",
@@ -19,7 +19,7 @@ dependencies = [
     "orjson>=3.10.12,<4.0",
     "django-cors-headers>=4.9.0,<5.0",
     "django-unfold>=0.101.0,<1.0",
-    "django-treebeard>=5.1.0,<6.0",
+    "django-treebeard>=5.1.0,<8.0",
     "numpy>=2.2.2,<3.0",
     "gunicorn>=26.0.0,<27.0",
     "construct-typing>=0.7.0,<1.0",
